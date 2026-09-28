@@ -1,0 +1,10 @@
+.DS_Store
+__pycache__/
+*.pyc
+shiftproof*.db
+*.sqlite
+*.sqlite3
+uploads/*
+!uploads/.keep
+.env
+.env.*
