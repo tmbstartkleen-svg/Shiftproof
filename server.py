@@ -3,9 +3,11 @@ import base64, hashlib, hmac, json, mimetypes, os, re, secrets, sqlite3, sys, th
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(ROOT, 'shiftproof_v5.db')
+DB = os.path.join(ROOT, 'shiftproof_v6.db')
 UPLOAD_DIR = os.path.join(ROOT, 'uploads')
 HOST = '127.0.0.1'
 PORT = int(os.environ.get('SHIFTPROOF_PORT', '4788'))
@@ -58,6 +60,11 @@ def init_db():
     CREATE TABLE IF NOT EXISTS root_causes(id TEXT PRIMARY KEY,facility_id TEXT,downtime_id TEXT,cause_category TEXT,cause_detail TEXT,corrective_action TEXT,recurrence_count INTEGER,confidence REAL,created_at TEXT);
     CREATE TABLE IF NOT EXISTS escalation_rules(id TEXT PRIMARY KEY,facility_id TEXT,name TEXT,metric TEXT,operator TEXT,threshold REAL,severity TEXT,department TEXT,enabled INTEGER,last_triggered_at TEXT);
     CREATE TABLE IF NOT EXISTS asset_scans(id TEXT PRIMARY KEY,facility_id TEXT,asset_id TEXT,user_id TEXT,scan_type TEXT,created_at TEXT);
+    CREATE TABLE IF NOT EXISTS role_permissions(role TEXT,permission TEXT,enabled INTEGER DEFAULT 1,PRIMARY KEY(role,permission));
+    CREATE TABLE IF NOT EXISTS integrations(id TEXT PRIMARY KEY,facility_id TEXT,name TEXT,type TEXT,status TEXT,endpoint TEXT,token TEXT,last_sync_at TEXT,created_at TEXT);
+    CREATE TABLE IF NOT EXISTS webhook_events(id TEXT PRIMARY KEY,facility_id TEXT,integration_id TEXT,event_type TEXT,payload TEXT,status TEXT,received_at TEXT,processed_at TEXT);
+    CREATE TABLE IF NOT EXISTS notification_deliveries(id TEXT PRIMARY KEY,facility_id TEXT,notification_id TEXT,channel TEXT,destination TEXT,status TEXT,detail TEXT,created_at TEXT,sent_at TEXT);
+    CREATE TABLE IF NOT EXISTS llm_settings(id TEXT PRIMARY KEY,facility_id TEXT,provider TEXT,model TEXT,enabled INTEGER,updated_at TEXT);
     CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,facility_id TEXT,user_id TEXT,action TEXT,entity_type TEXT,entity_id TEXT,detail TEXT,created_at TEXT);
     CREATE INDEX IF NOT EXISTS idx_audit_facility ON audit_log(facility_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_issue_facility ON issues(facility_id,status);
@@ -71,6 +78,9 @@ def seed(c):
     customer='co_customer'; contractor='co_contractor'; facility='fac_demo'
     c.executemany('INSERT INTO companies VALUES(?,?,?)',[(customer,'Summit Foods','Customer'),(contractor,'StartKleen','Contractor')])
     c.execute('INSERT INTO facilities VALUES(?,?,?,?,?,?,?)',(facility,'Summit Foods — Central Plant','SFC-01','Midwest','Contract Sanitation',customer,contractor))
+    c.executemany('INSERT INTO facilities VALUES(?,?,?,?,?,?,?)',[
+      ('fac_north','Summit Foods — North Plant','SFN-02','Nebraska','Hybrid Sanitation',customer,contractor),
+      ('fac_south','Summit Foods — South Plant','SFS-03','Tennessee','In-house Sanitation',customer,None)])
     demo_users=[
       ('u_pm','Morgan Reed','plantmanager@demo.local','Plant Manager','Management',customer,'1111','Executive'),
       ('u_prod','Alex Rivera','production@demo.local','Production Supervisor','Production',customer,'2222','Supervisor'),
@@ -79,6 +89,9 @@ def seed(c):
       ('u_maint','Taylor Brooks','maintenance@demo.local','Maintenance Lead','Maintenance',customer,'5555','Lead')]
     for id_,name,email,role,dept,co,pin,level in demo_users:
         salt,dig=hash_pin(pin); c.execute('INSERT INTO users VALUES(?,?,?,?,?,?,?,?,1)',(id_,name,email,role,dept,co,salt,dig)); c.execute('INSERT INTO memberships VALUES(?,?,?)',(id_,facility,level))
+        if id_=='u_pm':
+            c.execute('INSERT INTO memberships VALUES(?,?,?)',(id_,'fac_north','Executive'))
+            c.execute('INSERT INTO memberships VALUES(?,?,?)',(id_,'fac_south','Executive'))
     lines=[('l101','Line 101','Running',94,91,7,8,'1st'),('l103','Line 103','Running',96,97,8,8,'1st'),('l104','Line 104','Watch',95,86,6,8,'1st'),('raw','Raw Grind','Running',93,92,5,5,'1st')]
     for id_,name,status,target,actual,staffed,planned,shift in lines:c.execute('INSERT INTO lines VALUES(?,?,?,?,?,?,?,?,?)',(id_,facility,name,status,target,actual,staffed,planned,shift))
     assets=[('a_bagger','l104','Bagger #2','Bagger','Maintenance Watch',1),('a_conv','l103','Transfer Conveyor','Conveyor','Available',1),('a_former','l101','Former #1','Former','Available',1),('a_grinder','raw','Grinder #4','Grinder','Sanitation Required',1)]
@@ -142,7 +155,31 @@ def seed(c):
       ('er2',facility,'Downtime escalation','open_downtime_minutes','>',20,'high','Maintenance',1,None),
       ('er3',facility,'Sanitation verification delay','sanitation_eta','>',45,'warning','Sanitation',1,None),
       ('er4',facility,'QA release block','qa_blocks','>',0,'critical','Quality',1,None)])
-    c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility,'system','SEED','facility',facility,'Demo plant initialized for v5',t))
+    c.executemany('INSERT INTO lines VALUES(?,?,?,?,?,?,?,?,?)',[
+      ('n201','fac_north','Line 201','Running',95,96,9,9,'1st'),('n202','fac_north','Line 202','Running',94,93,7,8,'1st'),
+      ('s301','fac_south','Line 301','Watch',95,89,6,8,'1st'),('s302','fac_south','Line 302','Running',94,95,7,7,'1st')])
+    c.executemany('INSERT INTO issues VALUES(?,?,?,?,?,?,?,?,?,?,?)',[
+      ('ni1','fac_north','Minor staffing gap on Line 202','Production','Open','Medium',None,'Production',0,t,None),
+      ('si1','fac_south','Pre-op reclean required','Quality','Open','High',None,'Sanitation',1,t,None)])
+    c.executemany('INSERT INTO qa VALUES(?,?,?,?,?,?,?,?)',[
+      ('nq1','fac_north','North RTE','Released','Pass','QA',t,t),
+      ('sq1','fac_south','South Raw','Pending','Awaiting reclean','QA',t,None)])
+    c.executemany('INSERT INTO sanitation VALUES(?,?,?,?,?,?,?,?,?)',[
+      ('ns1','fac_north','North RTE','Night sanitation','In Progress',72,'Required','Sanitation',t),
+      ('ss1','fac_south','South Raw','Raw sanitation','In Progress',61,'Required','Sanitation',t)])
+    perms={
+      'Plant Manager':['enterprise.view','facility.view','work.write','people.manage','integrations.manage','roles.manage','ai.use'],
+      'Production Supervisor':['facility.view','work.write','production.write','ai.use'],
+      'Sanitation Site Manager':['facility.view','work.write','sanitation.write','proof.write','ai.use'],
+      'QA Manager':['facility.view','work.write','qa.release','proof.write','ai.use'],
+      'Maintenance Lead':['facility.view','work.write','maintenance.write','ai.use']}
+    for role,plist in perms.items():
+        for perm in plist:c.execute('INSERT OR IGNORE INTO role_permissions VALUES(?,?,1)',(role,perm))
+    c.executemany('INSERT INTO integrations VALUES(?,?,?,?,?,?,?,?,?)',[
+      ('int_erp',facility,'ERP / Production Import','ERP','Configured','/api/webhook/int_erp','wh_erp_demo',None,t),
+      ('int_cmms',facility,'CMMS Work Orders','CMMS','Configured','/api/webhook/int_cmms','wh_cmms_demo',None,t)])
+    c.execute('INSERT INTO llm_settings VALUES(?,?,?,?,?,?)',('llm1',facility,'OpenAI-compatible',os.environ.get('SHIFTPROOF_LLM_MODEL','gpt-5.6'),1,t))
+    c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility,'system','SEED','facility',facility,'Demo plant initialized for v6',t))
 
 def audit(c, facility_id, user_id, action, entity_type, entity_id, detail=''):
     c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility_id,user_id,action,entity_type,entity_id,detail,now_iso()))
@@ -160,8 +197,47 @@ def can_write(user, op):
     if user['role'] in ('Plant Manager','QA Manager','Sanitation Site Manager','Maintenance Lead','Production Supervisor'):return True
     return False
 
+def has_permission(c,user,permission):
+    if not user:return False
+    row=c.execute('SELECT enabled FROM role_permissions WHERE role=? AND permission=?',(user['role'],permission)).fetchone()
+    return bool(row and int(row['enabled'] or 0))
+
+def enterprise_snapshot(c,user_id):
+    facs=visible_facilities(c,user_id); out=[]
+    for fid in facs:
+        fac=c.execute('SELECT * FROM facilities WHERE id=?',(fid,)).fetchone()
+        if not fac: continue
+        snap=plant_snapshot(c,fid); lines=snap['lines']; issues=[x for x in snap['issues'] if x['status']!='Closed']; qa=[x for x in snap['qa'] if x['status']!='Released']; san=[x for x in snap['sanitation'] if x['status']!='Complete']
+        avg=round(sum(float(x['actual'] or 0) for x in lines)/max(1,len(lines)),1) if lines else 0
+        score=max(0,100-len([x for x in issues if x['priority'] in ('High','Critical')])*7-len(qa)*5-len([x for x in lines if float(x['actual'] or 0)<float(x['target'] or 0)])*3)
+        out.append({'facility':dict(fac),'pxs':score,'avgAttainment':avg,'openIssues':len(issues),'qaBlocks':len(qa),'sanitationOpen':len(san),'lineCount':len(lines)})
+    return sorted(out,key=lambda x:x['pxs'])
+
+def llm_answer(c,facility_id,question):
+    fallback=ask_plant(c,facility_id,question)
+    key=os.environ.get('SHIFTPROOF_LLM_KEY','').strip(); url=os.environ.get('SHIFTPROOF_LLM_URL','').strip(); model=os.environ.get('SHIFTPROOF_LLM_MODEL','gpt-5.6').strip()
+    if not key or not url:
+        fallback['mode']='grounded-rules-v6'; fallback['llmConfigured']=False; return fallback
+    snap=plant_snapshot(c,facility_id); compact={'facility':snap['facility'],'lines':snap['lines'],'orders':snap['orders'][:20],'downtime':snap['downtime'][:30],'sanitation':snap['sanitation'][:30],'qa':snap['qa'][:20],'issues':snap['issues'][:30]}
+    prompt='You are ShiftProof Shift Commander. Answer only from the supplied plant JSON. If evidence is missing, say so. Be concise and cite supporting entity IDs in brackets. Question: '+question+'\nPlant JSON: '+json.dumps(compact,separators=(',',':'))[:28000]
+    payload=json.dumps({'model':model,'input':prompt}).encode()
+    try:
+        req=Request(url,data=payload,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json'})
+        with urlopen(req,timeout=25) as r: data=json.loads(r.read().decode())
+        text=''
+        if isinstance(data,dict):
+            text=data.get('output_text') or data.get('text') or ''
+            if not text:
+                for item in data.get('output',[]) or []:
+                    for ct in item.get('content',[]) or []:
+                        if isinstance(ct,dict) and ct.get('text'): text+=ct.get('text')
+        if not text: raise ValueError('LLM returned no readable text')
+        return {'answer':text,'evidence':fallback.get('evidence',[]),'generatedAt':now_iso(),'mode':'llm-grounded-v6','llmConfigured':True,'model':model}
+    except Exception as e:
+        fallback['mode']='grounded-rules-v6-fallback'; fallback['llmConfigured']=True; fallback['llmError']=str(e)[:220]; return fallback
+
 def rows(c, table, facility_id, order='rowid DESC'):
-    allowed={'lines','assets','people','shifts','issues','tickets','handoffs','sanitation','qa','proofs','mss','notifications','production_orders','downtime','changeovers','labor_assignments','sla_metrics','plant_nodes','sku_costs','root_causes','escalation_rules','asset_scans','audit_log'}
+    allowed={'lines','assets','people','shifts','issues','tickets','handoffs','sanitation','qa','proofs','mss','notifications','production_orders','downtime','changeovers','labor_assignments','sla_metrics','plant_nodes','sku_costs','root_causes','escalation_rules','asset_scans','role_permissions','integrations','webhook_events','notification_deliveries','llm_settings','audit_log'}
     assert table in allowed
     return [dict(x) for x in c.execute(f'SELECT * FROM {table} WHERE facility_id=? ORDER BY {order}',(facility_id,))]
 
@@ -176,7 +252,7 @@ def plant_snapshot(c, facility_id):
       'orders':rows(c,'production_orders',facility_id,'sequence_no'), 'downtime':rows(c,'downtime',facility_id,'created_at DESC'), 'changeovers':rows(c,'changeovers',facility_id,'created_at DESC'),
       'labor':rows(c,'labor_assignments',facility_id,'created_at DESC'), 'sla':rows(c,'sla_metrics',facility_id,'name'), 'plantNodes':rows(c,'plant_nodes',facility_id,'label'),
       'skuCosts':rows(c,'sku_costs',facility_id,'sku'), 'rootCauses':rows(c,'root_causes',facility_id,'created_at DESC'), 'escalationRules':rows(c,'escalation_rules',facility_id,'name'), 'assetScans':rows(c,'asset_scans',facility_id,'created_at DESC')[:50],
-      'audit':rows(c,'audit_log',facility_id,'created_at DESC')[:100]
+      'rolePermissions':[dict(x) for x in c.execute('SELECT * FROM role_permissions ORDER BY role,permission')], 'integrations':rows(c,'integrations',facility_id,'created_at DESC'), 'webhookEvents':rows(c,'webhook_events',facility_id,'received_at DESC')[:50], 'notificationDeliveries':rows(c,'notification_deliveries',facility_id,'created_at DESC')[:50], 'llmSettings':rows(c,'llm_settings',facility_id,'updated_at DESC'), 'audit':rows(c,'audit_log',facility_id,'created_at DESC')[:100]
     }
 
 def oee_components(c, facility_id):
@@ -310,7 +386,7 @@ def commander(c, facility_id):
     return {'pxs':score,'proofScore':proof_score,'avgAttainment':avg_att,'oee':oee,'oeeComponents':oc,'downtimeMinutes':dt_minutes,'sanitationEtaMinutes':sanitation_eta,'sanitationForecast':sf,'escalations':trigger_escalations(c,facility_id),'summary':summary,'risks':risks,'actions':actions,'generatedAt':now_iso()}
 
 class Handler(BaseHTTPRequestHandler):
-    server_version='ShiftProofONE/5.0'
+    server_version='ShiftProofONE/6.0'
     def log_message(self,fmt,*args): sys.stdout.write('[ShiftProof] '+fmt%args+'\n')
     def send_json(self,obj,status=200,headers=None):
         data=json.dumps(obj,separators=(',',':')).encode(); self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store');
@@ -352,6 +428,15 @@ class Handler(BaseHTTPRequestHandler):
             facility=self.headers.get('X-Facility'); c=conn(); facs=visible_facilities(c,u['id']);
             if facility not in facs:c.close(); return self.send_json({'ok':False,'error':'forbidden'},403)
             out=commander(c,facility); c.close(); return self.send_json({'ok':True,'commander':out})
+        if p=='/api/enterprise':
+            u=self.auth();
+            if not u:return
+            c=conn()
+            if not has_permission(c,u,'enterprise.view'):
+                c.close(); return self.send_json({'ok':False,'error':'forbidden'},403)
+            data=enterprise_snapshot(c,u['id']); c.close(); return self.send_json({'ok':True,'facilities':data})
+        if p=='/manifest.webmanifest': return self.serve_file(os.path.join(ROOT,'manifest.webmanifest'))
+        if p=='/sw.js': return self.serve_file(os.path.join(ROOT,'sw.js'))
         if p=='/api/intelligence':
             u=self.auth();
             if not u:return
@@ -379,6 +464,10 @@ class Handler(BaseHTTPRequestHandler):
         if p=='/api/logout':
             cookie=self.headers.get('Cookie',''); m=re.search(r'sp_session=([^;]+)',cookie); c=conn();
             if m:c.execute('DELETE FROM sessions WHERE token=?',(m.group(1),)); c.commit(); c.close(); return self.send_json({'ok':True},headers={'Set-Cookie':'sp_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0'})
+        if p.startswith('/api/webhook/'):
+            integration_id=p.rsplit('/',1)[-1]; token=self.headers.get('X-ShiftProof-Token','') or body.get('token',''); c=conn(); integ=c.execute('SELECT * FROM integrations WHERE id=?',(integration_id,)).fetchone()
+            if not integ or not hmac.compare_digest(str(integ['token'] or ''),str(token or '')): c.close(); return self.send_json({'ok':False,'error':'invalid webhook token'},403)
+            ev=uid('wh'); event_type=str(body.get('eventType','external.event')); c.execute('INSERT INTO webhook_events VALUES(?,?,?,?,?,?,?,?)',(ev,integ['facility_id'],integration_id,event_type,json.dumps(body)[:50000],'Received',now_iso(),None)); c.execute('UPDATE integrations SET last_sync_at=? WHERE id=?',(now_iso(),integration_id)); audit(c,integ['facility_id'],'integration','WEBHOOK','integration',integration_id,event_type); c.commit(); c.close(); return self.send_json({'ok':True,'eventId':ev})
         if p!='/api/action': return self.send_error(404)
         u=self.auth();
         if not u:return
@@ -467,7 +556,7 @@ class Handler(BaseHTTPRequestHandler):
         if op=='update_sla':
             c.execute('UPDATE sla_metrics SET actual=?,status=?,updated_at=? WHERE id=? AND facility_id=?',(float(b['actual']),b.get('status','Watch'),t,b['id'],f)); audit(c,f,u['id'],'UPDATE','sla',b['id'],str(b['actual'])); return 'Updated'
         if op=='ask_plant':
-            out=ask_plant(c,f,b.get('question','')); audit(c,f,u['id'],'ASK','plant',f,(b.get('question','') or '')[:180]); return out
+            out=llm_answer(c,f,b.get('question','')); audit(c,f,u['id'],'ASK','plant',f,(b.get('question','') or '')[:180]); return out
         if op=='optimize_sequence':
             opt=sequence_optimizer(c,f)
             for x in opt['orders']: c.execute('UPDATE production_orders SET sequence_no=? WHERE id=? AND facility_id=?',(x['sequence'],x['id'],f))
@@ -495,6 +584,14 @@ class Handler(BaseHTTPRequestHandler):
             id_=uid('scan'); c.execute('INSERT INTO asset_scans VALUES(?,?,?,?,?,?)',(id_,f,a['id'],u['id'],b.get('scanType','QR'),t)); audit(c,f,u['id'],'SCAN','asset',a['id'],a['name']); return {'scanId':id_,'asset':dict(a)}
         if op=='update_node_position':
             c.execute('UPDATE plant_nodes SET x=?,y=? WHERE id=? AND facility_id=?',(float(b['x']),float(b['y']),b['id'],f)); audit(c,f,u['id'],'MOVE','plant_node',b['id'],f"{b['x']},{b['y']}"); return 'Updated'
+        if op=='set_permission':
+            if not has_permission(c,u,'roles.manage'): raise ValueError('Role permission management is restricted.')
+            c.execute('INSERT INTO role_permissions(role,permission,enabled) VALUES(?,?,?) ON CONFLICT(role,permission) DO UPDATE SET enabled=excluded.enabled',(b['role'],b['permission'],1 if b.get('enabled') else 0)); audit(c,f,u['id'],'SET_PERMISSION','role',b['role'],b['permission']); return 'Updated'
+        if op=='create_integration':
+            if not has_permission(c,u,'integrations.manage'): raise ValueError('Integration management is restricted.')
+            id_=uid('int'); token=secrets.token_urlsafe(20); c.execute('INSERT INTO integrations VALUES(?,?,?,?,?,?,?,?,?)',(id_,f,b['name'],b.get('type','Webhook'),'Configured',f'/api/webhook/{id_}',token,None,t)); audit(c,f,u['id'],'CREATE','integration',id_,b['name']); return {'id':id_,'token':token,'endpoint':f'/api/webhook/{id_}'}
+        if op=='send_notification_test':
+            id_=uid('nd'); c.execute('INSERT INTO notification_deliveries VALUES(?,?,?,?,?,?,?,?,?)',(id_,f,None,b.get('channel','In-app'),b.get('destination',u['email']), 'Sent','Simulated local v6 delivery',t,t)); audit(c,f,u['id'],'SEND_TEST','notification_delivery',id_,b.get('channel','In-app')); return id_
         if op=='draft_handoff':
             snap=plant_snapshot(c,f); cmd=commander(c,f); lines=[x for x in snap['lines'] if float(x['actual'] or 0)<float(x['target'] or 0)]; dt=sorted(snap['downtime'],key=lambda x:float(x['minutes'] or 0),reverse=True); text=f"AI draft: PXS {cmd['pxs']}, modeled OEE {cmd['oee']}%. "; text+=f"{len(lines)} line(s) below target. " if lines else 'All tracked lines at/above target. '; text+=f"Largest downtime: {dt[0]['reason']} ({dt[0]['minutes']} min). " if dt else 'No downtime recorded. '; text+=f"Sanitation forecast: {cmd['sanitationEtaMinutes']} modeled minutes remaining. "; text+=f"Open QA blocks: {len([q for q in snap['qa'] if q['status']!='Released'])}."; audit(c,f,u['id'],'DRAFT','handoff','ai',text[:220]); return text
         if op=='read_notification':
@@ -505,7 +602,7 @@ if __name__=='__main__':
     init_db()
     server=ThreadingHTTPServer((HOST,PORT),Handler)
     url=f'http://{HOST}:{PORT}'
-    print(f'ShiftProof ONE v5 running at {url}')
+    print(f'ShiftProof ONE v6 running at {url}')
     if '--no-open' not in sys.argv: threading.Timer(0.7,lambda:webbrowser.open(url)).start()
     try: server.serve_forever()
     except KeyboardInterrupt: pass
