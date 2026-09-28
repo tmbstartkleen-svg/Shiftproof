@@ -1,0 +1,9 @@
+{
+  "name": "ShiftProof ONE",
+  "short_name": "ShiftProof",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#061019",
+  "theme_color": "#061019",
+  "description": "Plant operations intelligence for production, sanitation, quality and maintenance."
+}
