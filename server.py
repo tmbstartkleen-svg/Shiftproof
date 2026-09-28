@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-import base64, hashlib, hmac, json, mimetypes, os, re, secrets, sqlite3, sys, threading, time, uuid, webbrowser
+import base64, hashlib, hmac, json, mimetypes, os, re, secrets, sqlite3, sys, threading, time, uuid, webbrowser, io
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, unquote
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(ROOT, 'shiftproof_v4.db')
+DB = os.path.join(ROOT, 'shiftproof_v5.db')
 UPLOAD_DIR = os.path.join(ROOT, 'uploads')
 HOST = '127.0.0.1'
 PORT = int(os.environ.get('SHIFTPROOF_PORT', '4788'))
@@ -54,6 +54,10 @@ def init_db():
     CREATE TABLE IF NOT EXISTS labor_assignments(id TEXT PRIMARY KEY,facility_id TEXT,person_id TEXT,department TEXT,line_id TEXT,task TEXT,status TEXT,start_at TEXT,end_at TEXT,qualification_match INTEGER,created_at TEXT);
     CREATE TABLE IF NOT EXISTS sla_metrics(id TEXT PRIMARY KEY,facility_id TEXT,name TEXT,owner_type TEXT,target REAL,actual REAL,uom TEXT,status TEXT,period TEXT,updated_at TEXT);
     CREATE TABLE IF NOT EXISTS plant_nodes(id TEXT PRIMARY KEY,facility_id TEXT,label TEXT,node_type TEXT,line_id TEXT,asset_id TEXT,x REAL,y REAL,status TEXT,created_at TEXT);
+    CREATE TABLE IF NOT EXISTS sku_costs(id TEXT PRIMARY KEY,facility_id TEXT,sku TEXT,product_name TEXT,sanitation_minutes REAL,labor_hours REAL,chemical_cost REAL,avg_changeover_minutes REAL,allergen_complexity INTEGER,updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS root_causes(id TEXT PRIMARY KEY,facility_id TEXT,downtime_id TEXT,cause_category TEXT,cause_detail TEXT,corrective_action TEXT,recurrence_count INTEGER,confidence REAL,created_at TEXT);
+    CREATE TABLE IF NOT EXISTS escalation_rules(id TEXT PRIMARY KEY,facility_id TEXT,name TEXT,metric TEXT,operator TEXT,threshold REAL,severity TEXT,department TEXT,enabled INTEGER,last_triggered_at TEXT);
+    CREATE TABLE IF NOT EXISTS asset_scans(id TEXT PRIMARY KEY,facility_id TEXT,asset_id TEXT,user_id TEXT,scan_type TEXT,created_at TEXT);
     CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,facility_id TEXT,user_id TEXT,action TEXT,entity_type TEXT,entity_id TEXT,detail TEXT,created_at TEXT);
     CREATE INDEX IF NOT EXISTS idx_audit_facility ON audit_log(facility_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_issue_facility ON issues(facility_id,status);
@@ -125,7 +129,20 @@ def seed(c):
       ('pn5',facility,'Bagger #2','Asset','l104','a_bagger',82,48,'Maintenance Watch',t),
       ('pn6',facility,'QA / Pre-Op','Area',None,None,57,73,'Pending',t),
       ('pn7',facility,'Sanitation Staging','Area',None,None,29,76,'Ready',t)])
-    c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility,'system','SEED','facility',facility,'Demo plant initialized',t))
+    c.executemany('INSERT INTO sku_costs VALUES(?,?,?,?,?,?,?,?,?,?)',[
+      ('sc1',facility,'SKU-CHX-001','Original Chicken Bites',38,4.2,18.50,22,0,t),
+      ('sc2',facility,'SKU-BBQ-014','BBQ Chicken Bites',44,4.8,21.20,26,0,t),
+      ('sc3',facility,'SKU-MILK-022','Cream Sauce Meal',72,8.5,38.60,48,3,t),
+      ('sc4',facility,'SKU-EGG-031','Egg Glaze Product',66,7.9,34.10,44,2,t)])
+    c.executemany('INSERT INTO root_causes VALUES(?,?,?,?,?,?,?,?,?)',[
+      ('rc1',facility,'dt1','Equipment','Bagger drive/tracking drift after repeated micro-stops','Inspect belt tracking and drive alignment; verify after sanitation',3,0.86,t),
+      ('rc2',facility,'dt3','Labor','Packoff staffing below plan','Cross-train and stage qualified backup operator',2,0.74,t)])
+    c.executemany('INSERT INTO escalation_rules VALUES(?,?,?,?,?,?,?,?,?,?)',[
+      ('er1',facility,'Production attainment risk','line_attainment','<',90,'high','Production',1,None),
+      ('er2',facility,'Downtime escalation','open_downtime_minutes','>',20,'high','Maintenance',1,None),
+      ('er3',facility,'Sanitation verification delay','sanitation_eta','>',45,'warning','Sanitation',1,None),
+      ('er4',facility,'QA release block','qa_blocks','>',0,'critical','Quality',1,None)])
+    c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility,'system','SEED','facility',facility,'Demo plant initialized for v5',t))
 
 def audit(c, facility_id, user_id, action, entity_type, entity_id, detail=''):
     c.execute('INSERT INTO audit_log(facility_id,user_id,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?,?)',(facility_id,user_id,action,entity_type,entity_id,detail,now_iso()))
@@ -144,7 +161,7 @@ def can_write(user, op):
     return False
 
 def rows(c, table, facility_id, order='rowid DESC'):
-    allowed={'lines','assets','people','shifts','issues','tickets','handoffs','sanitation','qa','proofs','mss','notifications','production_orders','downtime','changeovers','labor_assignments','sla_metrics','plant_nodes','audit_log'}
+    allowed={'lines','assets','people','shifts','issues','tickets','handoffs','sanitation','qa','proofs','mss','notifications','production_orders','downtime','changeovers','labor_assignments','sla_metrics','plant_nodes','sku_costs','root_causes','escalation_rules','asset_scans','audit_log'}
     assert table in allowed
     return [dict(x) for x in c.execute(f'SELECT * FROM {table} WHERE facility_id=? ORDER BY {order}',(facility_id,))]
 
@@ -158,8 +175,100 @@ def plant_snapshot(c, facility_id):
       'proofs':rows(c,'proofs',facility_id,'created_at DESC'), 'mss':rows(c,'mss',facility_id,'due_at'), 'notifications':rows(c,'notifications',facility_id,'created_at DESC'),
       'orders':rows(c,'production_orders',facility_id,'sequence_no'), 'downtime':rows(c,'downtime',facility_id,'created_at DESC'), 'changeovers':rows(c,'changeovers',facility_id,'created_at DESC'),
       'labor':rows(c,'labor_assignments',facility_id,'created_at DESC'), 'sla':rows(c,'sla_metrics',facility_id,'name'), 'plantNodes':rows(c,'plant_nodes',facility_id,'label'),
+      'skuCosts':rows(c,'sku_costs',facility_id,'sku'), 'rootCauses':rows(c,'root_causes',facility_id,'created_at DESC'), 'escalationRules':rows(c,'escalation_rules',facility_id,'name'), 'assetScans':rows(c,'asset_scans',facility_id,'created_at DESC')[:50],
       'audit':rows(c,'audit_log',facility_id,'created_at DESC')[:100]
     }
+
+def oee_components(c, facility_id):
+    snap=plant_snapshot(c,facility_id)
+    dt=sum(float(x['minutes'] or 0) for x in snap['downtime'])
+    planned=480*max(1,len(snap['lines']))
+    availability=max(0,min(100,100*(planned-dt)/planned))
+    performance=max(0,min(100,sum(float(l['actual'] or 0) for l in snap['lines'])/max(1,len(snap['lines']))))
+    qa_blocks=len([q for q in snap['qa'] if q['status']!='Released'])
+    quality_issues=len([i for i in snap['issues'] if i['department']=='Quality' and i['status']!='Closed'])
+    quality=max(90,min(100,100-qa_blocks*1.5-quality_issues*2.0))
+    oee=(availability/100)*(performance/100)*(quality/100)*100
+    return {'availability':round(availability,1),'performance':round(performance,1),'quality':round(quality,1),'oee':round(oee,1)}
+
+def sanitation_forecast(c, facility_id):
+    tasks=rows(c,'sanitation',facility_id,'created_at DESC')
+    active=[x for x in tasks if x['status']!='Complete']
+    labor_minutes=0.0
+    for x in active:
+        remain=max(0,100-int(x['percent'] or 0))/100
+        base=60.0
+        if 'grinder' in (x['task'] or '').lower(): base=90
+        elif 'conveyor' in (x['task'] or '').lower(): base=55
+        labor_minutes+=remain*base
+    active_workers=max(1,len([p for p in rows(c,'people',facility_id,'name') if p['department']=='Sanitation' and p['status']=='Working']))
+    eta=round(labor_minutes/active_workers)
+    return {'etaMinutes':eta,'laborMinutes':round(labor_minutes),'activeWorkers':active_workers,'activeTasks':len(active)}
+
+def sequence_optimizer(c, facility_id):
+    orders=[o for o in rows(c,'production_orders',facility_id,'sequence_no') if o['status'] not in ('Complete','Closed')]
+    weights={'None':0,'':0,'Soy':1,'Wheat':2,'Egg':3,'Milk':4,'Peanut':5,'Tree Nut':6}
+    # Cluster low-allergen runs first and preserve priority within groups; higher allergen complexity runs later.
+    optimized=sorted(orders,key=lambda o:(weights.get(o['allergen_group'],3),int(o['priority'] or 3),int(o['sequence_no'] or 99)))
+    transitions=[]; saved=0
+    prev=None
+    for idx,o in enumerate(optimized,1):
+        risk='standard'
+        if prev and prev.get('allergen_group')!=o.get('allergen_group') and o.get('allergen_group') not in ('None',''):
+            risk='allergen-control'; saved+=12
+        transitions.append({'sequence':idx,'id':o['id'],'sku':o['sku'],'product':o['product_name'],'allergen':o['allergen_group'],'lineId':o['line_id'],'transition':risk})
+        prev=o
+    return {'orders':transitions,'estimatedChangeoverMinutesAvoided':max(0,saved),'logic':'Groups lower-allergen products earlier while respecting production priority within allergen groups.'}
+
+def sku_cost_summary(c, facility_id):
+    costs=rows(c,'sku_costs',facility_id,'sku')
+    return sorted(costs,key=lambda x:(float(x['labor_hours'] or 0)*28+float(x['chemical_cost'] or 0)),reverse=True)
+
+def trigger_escalations(c, facility_id):
+    rules=rows(c,'escalation_rules',facility_id,'name'); snap=plant_snapshot(c,facility_id); sf=sanitation_forecast(c,facility_id)
+    values={
+      'line_attainment':min([float(l['actual'] or 0) for l in snap['lines']] or [100]),
+      'open_downtime_minutes':sum(float(d['minutes'] or 0) for d in snap['downtime'] if d['status']!='Closed'),
+      'sanitation_eta':sf['etaMinutes'],
+      'qa_blocks':len([q for q in snap['qa'] if q['status']!='Released'])}
+    fired=[]
+    for r in rules:
+        if not int(r['enabled'] or 0): continue
+        v=values.get(r['metric']); th=float(r['threshold'] or 0); op=r['operator']
+        hit=(op=='<' and v<th) or (op=='>' and v>th) or (op=='<=' and v<=th) or (op=='>=' and v>=th)
+        if hit: fired.append({'id':r['id'],'name':r['name'],'severity':r['severity'],'department':r['department'],'metric':r['metric'],'value':v,'threshold':th})
+    return fired
+
+def ask_plant(c, facility_id, question):
+    q=(question or '').strip().lower(); snap=plant_snapshot(c,facility_id); cmd=commander(c,facility_id); sf=sanitation_forecast(c,facility_id); opt=sequence_optimizer(c,facility_id); oee=oee_components(c,facility_id)
+    citations=[]
+    if any(k in q for k in ('downtime','stop','loss','bottleneck')):
+        items=sorted(snap['downtime'],key=lambda x:float(x['minutes'] or 0),reverse=True)
+        if not items:return {'answer':'No downtime has been recorded for this facility.','evidence':[]}
+        top=items[:3]; ans='Largest recorded losses: '+ '; '.join(f"{x['reason']} ({x['minutes']} min)" for x in top)+'.'
+        citations=[{'type':'downtime','id':x['id']} for x in top]
+    elif any(k in q for k in ('sanitation','clean','pre-op','preop')):
+        ans=f"Sanitation has {sf['activeTasks']} active task(s), about {sf['laborMinutes']} labor-minutes remaining, and a modeled completion ETA of {sf['etaMinutes']} minutes with {sf['activeWorkers']} active sanitation worker(s)."
+        citations=[{'type':'sanitation','id':x['id']} for x in snap['sanitation'] if x['status']!='Complete'][:5]
+    elif any(k in q for k in ('oee','availability','performance','quality')):
+        ans=f"Modeled OEE is {oee['oee']}%: availability {oee['availability']}%, performance {oee['performance']}%, quality {oee['quality']}%."
+        citations=[{'type':'line','id':x['id']} for x in snap['lines']]
+    elif any(k in q for k in ('sequence','schedule','allergen','order')):
+        seq=', '.join(f"{x['sequence']}. {x['sku']}" for x in opt['orders']) or 'No active orders'
+        ans=f"Recommended production sequence: {seq}. Estimated avoidable changeover time from this modeled sequence: {opt['estimatedChangeoverMinutesAvoided']} minutes."
+        citations=[{'type':'production_order','id':x['id']} for x in opt['orders']]
+    elif any(k in q for k in ('labor','staff','people','employee')):
+        gaps=[l for l in snap['lines'] if int(l['staffed'] or 0)<int(l['planned'] or 0)]
+        ans=f"{len(gaps)} line(s) are below planned staffing. "+('Largest visible gap is '+gaps[0]['name']+f" at {gaps[0]['staffed']}/{gaps[0]['planned']}." if gaps else 'No tracked staffing gaps are present.')
+        citations=[{'type':'line','id':x['id']} for x in gaps]
+    elif any(k in q for k in ('cost','sku','expensive')):
+        costs=sku_cost_summary(c,facility_id); top=costs[0] if costs else None
+        ans=(f"Highest modeled sanitation-cost SKU is {top['sku']} ({top['product_name']}): {top['labor_hours']} labor-hours, ${top['chemical_cost']:.2f} chemical cost, and {top['sanitation_minutes']} sanitation minutes per modeled run." if top else 'No SKU sanitation-cost models are loaded.')
+        citations=[{'type':'sku_cost','id':top['id']}] if top else []
+    else:
+        ans=cmd['summary']+' '+(' '.join(cmd['risks'][:2]) if cmd['risks'] else '')
+        citations=[{'type':'facility','id':facility_id}]
+    return {'answer':ans,'evidence':citations,'generatedAt':now_iso(),'mode':'grounded-rules-v5'}
 
 def commander(c, facility_id):
     snap=plant_snapshot(c,facility_id); risks=[]; actions=[]
@@ -189,24 +298,19 @@ def commander(c, facility_id):
     if not actions:actions.append('Maintain current execution plan and complete normal shift handoff verification.')
     avg_att=round(sum(float(l['actual'] or 0) for l in snap['lines'])/max(1,len(snap['lines'])),1)
     dt_minutes=round(sum(float(x['minutes'] or 0) for x in snap['downtime']),1)
-    planned_runtime=480*max(1,len(snap['lines']))
-    availability=max(0,100*(planned_runtime-dt_minutes)/planned_runtime)
-    performance=min(100,max(0,avg_att))
-    quality=98.7
-    oee=round((availability/100)*(performance/100)*(quality/100)*100,1)
+    oc=oee_components(c,facility_id); oee=oc['oee']
     open_orders=[o for o in snap['orders'] if o['status'] not in ('Complete','Closed')]
     at_risk=[o for o in open_orders if o['status']=='At Risk']
     active_san=[x for x in snap['sanitation'] if x['status']!='Complete']
-    san_remaining=sum(max(0,100-int(x['percent'] or 0)) for x in active_san)
-    sanitation_eta=max(0,round(san_remaining*0.65))
+    sf=sanitation_forecast(c,facility_id); sanitation_eta=sf['etaMinutes']
     if at_risk: risks.append(f"{len(at_risk)} production order(s) are at risk; {at_risk[0]['sku']} is the highest active exception.")
     if dt_minutes>30: actions.append(f"Downtime totals {dt_minutes} min in the current view; focus on the largest repeat loss before the next run.")
     if any(int(x['allergen_change'] or 0)==1 and x['status']!='Complete' for x in snap['changeovers']): actions.append('An allergen changeover is planned; verify sequence, sanitation scope, and QA release before startup.')
     summary=f"Plant execution is {score}/100, modeled OEE is {oee}%, and average line attainment is {avg_att}%. {len(open_orders)} active production order(s), {len(open_issues)} open issue(s), and {len(blocked_qa)} QA item(s) are in workflow."
-    return {'pxs':score,'proofScore':proof_score,'avgAttainment':avg_att,'oee':oee,'downtimeMinutes':dt_minutes,'sanitationEtaMinutes':sanitation_eta,'summary':summary,'risks':risks,'actions':actions,'generatedAt':now_iso()}
+    return {'pxs':score,'proofScore':proof_score,'avgAttainment':avg_att,'oee':oee,'oeeComponents':oc,'downtimeMinutes':dt_minutes,'sanitationEtaMinutes':sanitation_eta,'sanitationForecast':sf,'escalations':trigger_escalations(c,facility_id),'summary':summary,'risks':risks,'actions':actions,'generatedAt':now_iso()}
 
 class Handler(BaseHTTPRequestHandler):
-    server_version='ShiftProofONE/4.0'
+    server_version='ShiftProofONE/5.0'
     def log_message(self,fmt,*args): sys.stdout.write('[ShiftProof] '+fmt%args+'\n')
     def send_json(self,obj,status=200,headers=None):
         data=json.dumps(obj,separators=(',',':')).encode(); self.send_response(status); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store');
@@ -248,6 +352,22 @@ class Handler(BaseHTTPRequestHandler):
             facility=self.headers.get('X-Facility'); c=conn(); facs=visible_facilities(c,u['id']);
             if facility not in facs:c.close(); return self.send_json({'ok':False,'error':'forbidden'},403)
             out=commander(c,facility); c.close(); return self.send_json({'ok':True,'commander':out})
+        if p=='/api/intelligence':
+            u=self.auth();
+            if not u:return
+            facility=self.headers.get('X-Facility'); c=conn(); facs=visible_facilities(c,u['id']);
+            if facility not in facs:c.close(); return self.send_json({'ok':False,'error':'forbidden'},403)
+            payload={'oee':oee_components(c,facility),'sanitationForecast':sanitation_forecast(c,facility),'optimizer':sequence_optimizer(c,facility),'skuCosts':sku_cost_summary(c,facility),'escalations':trigger_escalations(c,facility)}; c.close(); return self.send_json({'ok':True,'intelligence':payload})
+        if p.startswith('/qr/') and p.endswith('.png'):
+            asset_id=os.path.basename(p)[0:-4]; c=conn(); a=c.execute('SELECT * FROM assets WHERE id=?',(asset_id,)).fetchone(); c.close()
+            if not a:return self.send_error(404)
+            try:
+                import qrcode
+                target=f'http://{HOST}:{PORT}/#asset={asset_id}'
+                img=qrcode.make(target); buf=io.BytesIO(); img.save(buf,format='PNG'); data=buf.getvalue(); self.send_response(200); self.send_header('Content-Type','image/png'); self.send_header('Content-Length',str(len(data))); self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(data); return
+            except Exception as e:return self.send_json({'ok':False,'error':'QR generation unavailable: '+str(e)},500)
+        if p.startswith('/asset/'):
+            return self.serve_file(os.path.join(ROOT,'index.html'))
         self.send_error(404)
     def do_POST(self):
         p=urlparse(self.path).path; body=self.read_json()
@@ -346,6 +466,35 @@ class Handler(BaseHTTPRequestHandler):
             id_=uid('la'); person=c.execute('SELECT * FROM people WHERE id=? AND facility_id=?',(b['personId'],f)).fetchone(); skill=(person['skills'] or '').lower() if person else ''; line=c.execute('SELECT name FROM lines WHERE id=? AND facility_id=?',(b.get('lineId'),f)).fetchone(); line_name=(line['name'] if line else '').lower(); qual=1 if (not line_name or line_name in skill or b.get('forceQualified')) else 0; c.execute('INSERT INTO labor_assignments VALUES(?,?,?,?,?,?,?,?,?,?,?)',(id_,f,b['personId'],b.get('department',person['department'] if person else ''),b.get('lineId'),b.get('task',''),b.get('status','Active'),t,None,qual,t)); audit(c,f,u['id'],'ASSIGN','labor',id_,b.get('task','')); return {'id':id_,'qualificationMatch':qual}
         if op=='update_sla':
             c.execute('UPDATE sla_metrics SET actual=?,status=?,updated_at=? WHERE id=? AND facility_id=?',(float(b['actual']),b.get('status','Watch'),t,b['id'],f)); audit(c,f,u['id'],'UPDATE','sla',b['id'],str(b['actual'])); return 'Updated'
+        if op=='ask_plant':
+            out=ask_plant(c,f,b.get('question','')); audit(c,f,u['id'],'ASK','plant',f,(b.get('question','') or '')[:180]); return out
+        if op=='optimize_sequence':
+            opt=sequence_optimizer(c,f)
+            for x in opt['orders']: c.execute('UPDATE production_orders SET sequence_no=? WHERE id=? AND facility_id=?',(x['sequence'],x['id'],f))
+            audit(c,f,u['id'],'OPTIMIZE','production_sequence',f,json.dumps(opt)[:500]); return opt
+        if op=='auto_plan_sanitation':
+            created=[]; active=[o for o in rows(c,'production_orders',f,'sequence_no') if o['status'] not in ('Complete','Closed')]
+            existing={(x['area'],x['task']) for x in rows(c,'sanitation',f,'created_at DESC') if x['status']!='Complete'}
+            for o in active:
+                line=c.execute('SELECT name FROM lines WHERE id=?',(o['line_id'],)).fetchone(); area=line['name'] if line else 'Production'
+                allergen=o['allergen_group'] or 'None'; task=f"Post-run sanitation — {o['sku']}" + (f" — allergen control: {allergen}" if allergen not in ('None','') else '')
+                if (area,task) in existing: continue
+                id_=uid('s'); c.execute('INSERT INTO sanitation VALUES(?,?,?,?,?,?,?,?,?)',(id_,f,area,task,'Ready',0,'Required','Sanitation',t)); created.append(id_)
+            audit(c,f,u['id'],'AUTO_PLAN','sanitation',f,f'{len(created)} tasks created'); return {'created':created,'count':len(created)}
+        if op=='record_root_cause':
+            id_=uid('rc'); c.execute('INSERT INTO root_causes VALUES(?,?,?,?,?,?,?,?,?)',(id_,f,b['downtimeId'],b.get('causeCategory','Equipment'),b['causeDetail'],b.get('correctiveAction',''),int(b.get('recurrenceCount',1)),float(b.get('confidence',0.7)),t)); audit(c,f,u['id'],'CREATE','root_cause',id_,b['causeDetail']); return id_
+        if op=='update_sku_cost':
+            row=c.execute('SELECT id FROM sku_costs WHERE facility_id=? AND sku=?',(f,b['sku'])).fetchone(); id_=row['id'] if row else uid('sc')
+            vals=(b['sku'],b.get('productName',''),float(b.get('sanitationMinutes',0)),float(b.get('laborHours',0)),float(b.get('chemicalCost',0)),float(b.get('avgChangeoverMinutes',0)),int(b.get('allergenComplexity',0)),t)
+            if row:c.execute('UPDATE sku_costs SET product_name=?,sanitation_minutes=?,labor_hours=?,chemical_cost=?,avg_changeover_minutes=?,allergen_complexity=?,updated_at=? WHERE id=?',(vals[1],vals[2],vals[3],vals[4],vals[5],vals[6],vals[7],id_))
+            else:c.execute('INSERT INTO sku_costs VALUES(?,?,?,?,?,?,?,?,?,?)',(id_,f,*vals))
+            audit(c,f,u['id'],'UPSERT','sku_cost',id_,b['sku']); return id_
+        if op=='record_asset_scan':
+            a=c.execute('SELECT * FROM assets WHERE id=? AND facility_id=?',(b['assetId'],f)).fetchone()
+            if not a: raise ValueError('Asset not found')
+            id_=uid('scan'); c.execute('INSERT INTO asset_scans VALUES(?,?,?,?,?,?)',(id_,f,a['id'],u['id'],b.get('scanType','QR'),t)); audit(c,f,u['id'],'SCAN','asset',a['id'],a['name']); return {'scanId':id_,'asset':dict(a)}
+        if op=='update_node_position':
+            c.execute('UPDATE plant_nodes SET x=?,y=? WHERE id=? AND facility_id=?',(float(b['x']),float(b['y']),b['id'],f)); audit(c,f,u['id'],'MOVE','plant_node',b['id'],f"{b['x']},{b['y']}"); return 'Updated'
         if op=='draft_handoff':
             snap=plant_snapshot(c,f); cmd=commander(c,f); lines=[x for x in snap['lines'] if float(x['actual'] or 0)<float(x['target'] or 0)]; dt=sorted(snap['downtime'],key=lambda x:float(x['minutes'] or 0),reverse=True); text=f"AI draft: PXS {cmd['pxs']}, modeled OEE {cmd['oee']}%. "; text+=f"{len(lines)} line(s) below target. " if lines else 'All tracked lines at/above target. '; text+=f"Largest downtime: {dt[0]['reason']} ({dt[0]['minutes']} min). " if dt else 'No downtime recorded. '; text+=f"Sanitation forecast: {cmd['sanitationEtaMinutes']} modeled minutes remaining. "; text+=f"Open QA blocks: {len([q for q in snap['qa'] if q['status']!='Released'])}."; audit(c,f,u['id'],'DRAFT','handoff','ai',text[:220]); return text
         if op=='read_notification':
@@ -356,7 +505,7 @@ if __name__=='__main__':
     init_db()
     server=ThreadingHTTPServer((HOST,PORT),Handler)
     url=f'http://{HOST}:{PORT}'
-    print(f'ShiftProof ONE v4 running at {url}')
+    print(f'ShiftProof ONE v5 running at {url}')
     if '--no-open' not in sys.argv: threading.Timer(0.7,lambda:webbrowser.open(url)).start()
     try: server.serve_forever()
     except KeyboardInterrupt: pass
