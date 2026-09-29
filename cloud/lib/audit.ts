@@ -13,9 +13,10 @@ export type AuditInput = {
 
 export async function writeAuditEvent(input: AuditInput) {
   if (!databaseConfigured()) return { stored: false, mode: 'demo-fallback' as const };
+  const detail = JSON.parse(JSON.stringify(input.detail || {}));
   await sql()`
     insert into audit_events(organization_id, facility_id, user_id, action, entity_type, entity_id, detail)
-    values(${input.organizationId}::uuid,${input.facilityId || null}::uuid,${input.userId || null}::uuid,${input.action},${input.entityType},${input.entityId},${sql().json(input.detail || {})})
+    values(${input.organizationId}::uuid,${input.facilityId || null}::uuid,${input.userId || null}::uuid,${input.action},${input.entityType},${input.entityId},${sql().json(detail)})
   `;
   return { stored: true, mode: 'postgres' as const };
 }

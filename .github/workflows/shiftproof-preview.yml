@@ -27,6 +27,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Initialize deployment report
+        shell: bash
+        run: printf '{"version":"14.0.0","commit":"%s","previewUrl":null,"status":"started","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
       - name: Install dependencies
         run: npm install
       - name: Structural preflight
@@ -37,8 +40,7 @@ jobs:
         run: npm run test:permissions
       - name: Next.js build
         run: npm run build
-      - name: Initialize deployment report
-        shell: bash
+      - name: Mark validation success
         run: printf '{"version":"14.0.0","commit":"%s","previewUrl":null,"status":"validated","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
       - name: Install pinned Vercel CLI
         if: env.HAS_VERCEL_TOKEN == 'true'
