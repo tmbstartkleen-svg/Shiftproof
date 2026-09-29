@@ -19,7 +19,7 @@ jobs:
         working-directory: cloud
     env:
       VERCEL_CLI_VERSION: 61.0.0
-      VERCEL_PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME || 'shiftproof-one' }}
+      VERCEL_PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME || 'shiftproof' }}
       HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
