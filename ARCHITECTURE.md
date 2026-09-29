@@ -1,13 +1,20 @@
-# ShiftProof ONE v8 Architecture
+# ShiftProof ONE v10 Architecture
 
-## Editions
-1. Local Pilot Edition: Python + SQLite for plant pilots and offline/local use.
-2. Cloud SaaS Edition: Next.js App Router + Postgres-ready repository for multi-tenant hosting.
+## Tenant hierarchy
+Organization -> Facility -> Department -> Line -> Asset -> Plant Record / Evidence / Event.
 
-## Cloud security boundary
-Browser -> signed HTTP-only session -> organization context -> facility allow-list -> role capability -> route handler/repository.
+## Activation flow
+1. Deploy cloud app.
+2. Configure DATABASE_URL and session secret.
+3. Run migrations.
+4. Seed/bootstrap first owner or connect external identity provider.
+5. Create organization/facilities.
+6. Invite managers and supervisors.
+7. Invitation acceptance provisions user + organization membership + optional facility membership.
+8. Plant events persist to tenant-scoped plant_records.
 
-Demo auth is preview-only and separable from the future production identity provider.
-
-## Cloud data plane
-Postgres stores organizations, identity mappings, memberships, facilities, evidence metadata, integration events, and audit events. Binary evidence belongs in external blob/object storage with SHA-256 retained in metadata.
+## Safety boundaries
+- HTTP-only signed sessions in preview mode.
+- Organization and facility scope enforced server-side.
+- Invitation tokens are never stored in plaintext; only SHA-256 hashes persist.
+- Demo auth can be disabled independently from the production IdP adapter.

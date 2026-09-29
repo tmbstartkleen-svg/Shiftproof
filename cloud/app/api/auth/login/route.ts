@@ -1,3 +1,2 @@
-import { NextResponse } from "next/server";
-import { createSessionToken, sessionCookie, validateDemoCredentials } from "@/lib/auth";
-export async function POST(req:Request){const body=await req.json().catch(()=>({}));const user=validateDemoCredentials(String(body.email||''),String(body.password||''));if(!user)return NextResponse.json({ok:false,error:'Invalid credentials or demo auth disabled.'},{status:401});const token=createSessionToken(user);const res=NextResponse.json({ok:true,user:{name:user.name,role:user.role}});res.cookies.set(sessionCookie(token));return res}
+import {NextResponse} from 'next/server';import {createSessionToken,sessionCookie,validateDemoCredentials} from '@/lib/auth';import {resolveLoginIdentity} from '@/lib/repository';
+export async function POST(req:Request){const body=await req.json();const demo=validateDemoCredentials(body.email||'',body.password||'');if(!demo)return NextResponse.json({error:'Invalid credentials or demo auth disabled'},{status:401});const user=await resolveLoginIdentity(demo.email,demo);const r=NextResponse.json({ok:true,user});r.cookies.set(sessionCookie(createSessionToken(user)));return r}

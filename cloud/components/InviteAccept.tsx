@@ -1,0 +1,3 @@
+'use client';
+import {useState} from 'react';
+export default function InviteAccept({token,email}:{token:string,email:string}){const [name,setName]=useState('');const [msg,setMsg]=useState('');async function accept(){const r=await fetch('/api/invitations/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,name})});const j=await r.json();setMsg(r.ok?'Invitation accepted. You can now sign in through the configured identity provider.':j.error||'Unable to accept invitation')}return <div><p>{email}</p><label className="field">Your name<input value={name} onChange={e=>setName(e.target.value)} required/></label><button className="btn primary" onClick={accept}>Accept invitation</button>{msg&&<p className="callout">{msg}</p>}</div>}

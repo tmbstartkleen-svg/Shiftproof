@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server';import {getSession,canAdmin} from '@/lib/auth';import {createFacility} from '@/lib/repository';
+export async function POST(req:Request){const s=await getSession();if(!s||!canAdmin(s.role))return NextResponse.json({error:'forbidden'},{status:403});const b=await req.json();if(!b.name)return NextResponse.json({error:'name required'},{status:400});try{return NextResponse.json({facility:await createFacility(s.organizationId,b)})}catch(e:any){return NextResponse.json({error:e.message},{status:400})}}

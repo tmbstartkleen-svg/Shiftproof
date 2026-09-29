@@ -1,6 +1,1 @@
-import { NextResponse } from "next/server";
-import { databaseStatus } from "@/lib/db";
-import { storageStatus } from "@/lib/storage";
-import { aiStatus } from "@/lib/ai";
-import { authReadiness } from "@/lib/auth";
-export async function GET(){return NextResponse.json({ok:true,version:'8.0.0',runtime:'nextjs-cloud',database:databaseStatus(),storage:storageStatus(),ai:aiStatus(),auth:authReadiness()})}
+import {NextResponse} from 'next/server';import {databaseStatus} from '@/lib/db';import {identityStatus} from '@/lib/identity';export async function GET(){return NextResponse.json({ok:true,version:'10.0.0',database:databaseStatus(),identity:identityStatus(),activation:{onboarding:true,invitations:true,plantRecords:true,migrations:true}})}

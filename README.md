@@ -1,8 +1,7 @@
-# ShiftProof ONE v8
+# ShiftProof ONE v10
 
-v8 is the first authenticated hosted-preview build.
+ShiftProof ONE v10 activates the cloud control plane while preserving the local pilot edition in the GitHub repository root.
 
-- Local Pilot Edition remains at repository root.
-- Cloud SaaS Edition lives in `cloud/`.
-- Cloud APIs now require signed sessions and tenant/facility authorization.
-- Managed Postgres, evidence storage, notifications, AI, and webhook adapters remain environment-driven.
+Cloud source lives in `cloud/`.
+
+Key v10 capabilities: managed-Postgres migrations, organization/facility onboarding, invitation-based user activation, membership provisioning, persistent plant records, tenant administration, and production identity-provider boundaries.

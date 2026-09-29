@@ -1,64 +1,16 @@
-import "server-only";
-import crypto from "node:crypto";
-import postgres from "postgres";
-import { demoFacilities, tenant } from "@/lib/demo";
-
-const databaseUrl = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-const sql = databaseUrl ? postgres(databaseUrl, { max: 5, idle_timeout: 20 }) : null;
-
-export type FacilitySummary = {
-  id: string; name: string; location: string; model: string;
-  pxs: number; oee: number; attainment: number; qaBlocks: number;
-  sanitationMinutes: number; openIssues: number;
-};
-
-export function repositoryMode() { return sql ? "postgres" : "demo"; }
-
-export async function getOrganization(organizationId: string) {
-  if (!sql) return { id: organizationId, name: tenant.name, slug: "demo", subscription_tier: "pilot" };
-  const rows = await sql`select id::text,name,slug,subscription_tier from organizations where id::text=${organizationId} limit 1`;
-  return rows[0] || null;
-}
-
-export async function listFacilities(organizationId: string): Promise<FacilitySummary[]> {
-  if (!sql) return demoFacilities as FacilitySummary[];
-  const rows = await sql`
-    select f.id::text,f.name,coalesce(f.location,'') location,coalesce(f.sanitation_model,'In-house') model
-    from facilities f where f.organization_id::text=${organizationId} order by f.name`;
-  return rows.map((r:any)=>({id:r.id,name:r.name,location:r.location,model:r.model,pxs:100,oee:0,attainment:0,qaBlocks:0,sanitationMinutes:0,openIssues:0}));
-}
-
-export async function listInvitations(organizationId: string) {
-  if (!sql) return [];
-  return sql`select id::text,email,role,status,facility_id::text,expires_at,created_at from invitations where organization_id::text=${organizationId} order by created_at desc limit 100`;
-}
-
-export async function createOrganization(name:string, slug:string) {
-  if (!sql) throw new Error("Postgres is required for persistent organization creation.");
-  const rows=await sql`insert into organizations(name,slug) values(${name},${slug}) returning id::text,name,slug`;
-  await sql`insert into organization_settings(organization_id) values(${rows[0].id}::uuid) on conflict do nothing`;
-  return rows[0];
-}
-
-export async function createFacility(organizationId:string, input:{name:string;code?:string;location?:string;sanitationModel?:string}) {
-  if (!sql) throw new Error("Postgres is required for persistent facility creation.");
-  const rows=await sql`insert into facilities(organization_id,name,code,location,sanitation_model) values(${organizationId}::uuid,${input.name},${input.code||null},${input.location||null},${input.sanitationModel||"In-house"}) returning id::text,name`;
-  await sql`insert into facility_settings(facility_id) values(${rows[0].id}::uuid) on conflict do nothing`;
-  return rows[0];
-}
-
-export async function createInvitation(input:{organizationId:string;facilityId?:string|null;email:string;role:string;invitedBy?:string|null}) {
-  if (!sql) throw new Error("Postgres is required for persistent invitations.");
-  const token=crypto.randomBytes(32).toString("base64url");
-  const tokenHash=crypto.createHash("sha256").update(token).digest("hex");
-  const expires=new Date(Date.now()+7*24*60*60*1000);
-  const rows=await sql`insert into invitations(organization_id,facility_id,email,role,token_hash,invited_by,expires_at) values(${input.organizationId}::uuid,${input.facilityId||null}::uuid,${input.email.toLowerCase()},${input.role},${tokenHash},${input.invitedBy||null}::uuid,${expires}) returning id::text,email,role,status,expires_at`;
-  return {...rows[0], token};
-}
-
-export async function findInvitationByToken(token:string) {
-  if (!sql) return null;
-  const hash=crypto.createHash("sha256").update(token).digest("hex");
-  const rows=await sql`select i.id::text,i.email,i.role,i.status,i.expires_at,o.name organization_name,f.name facility_name from invitations i join organizations o on o.id=i.organization_id left join facilities f on f.id=i.facility_id where i.token_hash=${hash} limit 1`;
-  return rows[0]||null;
-}
+import 'server-only';
+import crypto from 'node:crypto';
+import {databaseConfigured,sql} from './db';
+import {demoFacilities,demoOrganization} from './demo';
+export type Facility={id:string;organizationId:string;name:string;code:string|null;location:string|null;sanitationModel:string|null};
+export async function getOrganization(id:string){if(!databaseConfigured())return id===demoOrganization.id?demoOrganization:null;const r=await sql()`select id::text,name,slug from organizations where id::text=${id} limit 1`;return r[0]||null}
+export async function listFacilities(orgId:string):Promise<any[]>{if(!databaseConfigured())return demoFacilities.filter(f=>f.organizationId===orgId);return await sql()`select id::text,"organization_id"::text as "organizationId",name,code,location,"sanitation_model" as "sanitationModel" from facilities where organization_id::text=${orgId} order by name`}
+export async function createOrganization(input:{name:string;slug:string},userId:string){if(!databaseConfigured())return {id:'org_demo',...input,demo:true};const rows=await sql().begin(async tx=>{const [org]=await tx`insert into organizations(name,slug) values(${input.name},${input.slug}) returning id::text,name,slug`;await tx`insert into memberships(organization_id,user_id,role,status) values(${org.id}::uuid,${userId}::uuid,'Owner','active') on conflict do nothing`;return [org]});return rows[0]}
+export async function createFacility(orgId:string,input:{name:string;code?:string;location?:string;sanitationModel?:string}){if(!databaseConfigured())return {id:'demo_'+Date.now(),organizationId:orgId,...input,demo:true};const [r]=await sql()`insert into facilities(organization_id,name,code,location,sanitation_model) values(${orgId}::uuid,${input.name},${input.code||null},${input.location||null},${input.sanitationModel||null}) returning id::text,organization_id::text as "organizationId",name,code,location,sanitation_model as "sanitationModel"`;return r}
+export async function listInvitations(orgId:string){if(!databaseConfigured())return [];return await sql()`select id::text,email,role,facility_id::text as "facilityId",status,expires_at as "expiresAt",created_at as "createdAt" from invitations where organization_id::text=${orgId} order by created_at desc limit 100`}
+export async function createInvitation(orgId:string,userId:string,input:{email:string;role:string;facilityId?:string|null}){const token=crypto.randomBytes(32).toString('base64url');const hash=crypto.createHash('sha256').update(token).digest('hex');const expires=new Date(Date.now()+7*24*60*60*1000);if(databaseConfigured()){await sql()`insert into invitations(organization_id,email,role,facility_id,token_hash,status,expires_at,created_by) values(${orgId}::uuid,${input.email.toLowerCase()},${input.role},${input.facilityId||null}::uuid,${hash},'pending',${expires.toISOString()},${userId}::uuid)`}return {token,expiresAt:expires.toISOString()}}
+export async function findInvitation(token:string){const hash=crypto.createHash('sha256').update(token).digest('hex');if(!databaseConfigured())return null;const [r]=await sql()`select id::text,organization_id::text as "organizationId",email,role,facility_id::text as "facilityId",status,expires_at as "expiresAt" from invitations where token_hash=${hash} and status='pending' and expires_at>now() limit 1`;return r||null}
+export async function acceptInvitation(token:string,name:string,externalSubject:string|null='invite-preview'){if(!databaseConfigured())return {demo:true};const invite=await findInvitation(token);if(!invite)throw new Error('Invitation is invalid or expired');return await sql().begin(async tx=>{let [user]=await tx`select id::text,email,name from users where lower(email)=lower(${invite.email}) limit 1`;if(!user){[user]=await tx`insert into users(email,name,identity_provider,external_subject) values(${invite.email},${name},'invite',${externalSubject}) returning id::text,email,name`}await tx`insert into memberships(organization_id,user_id,role,status) values(${invite.organizationId}::uuid,${user.id}::uuid,${invite.role},'active') on conflict (organization_id,user_id) do update set role=excluded.role,status='active'`;if(invite.facilityId)await tx`insert into facility_memberships(facility_id,user_id,access_level) values(${invite.facilityId}::uuid,${user.id}::uuid,${invite.role}) on conflict (facility_id,user_id) do update set access_level=excluded.access_level`;await tx`update invitations set status='accepted',accepted_at=now(),accepted_user_id=${user.id}::uuid where id=${invite.id}::uuid`;return user})}
+export async function listPlantRecords(orgId:string,facilityId:string){if(!databaseConfigured())return [{id:'demo_rec_1',recordType:'sanitation',status:'in_progress',title:'Line 103 sanitation',data:{percent:50}}];return await sql()`select id::text,record_type as "recordType",status,title,data,occurred_at as "occurredAt",created_at as "createdAt" from plant_records where organization_id::text=${orgId} and facility_id::text=${facilityId} order by occurred_at desc limit 200`}
+export async function createPlantRecord(orgId:string,facilityId:string,userId:string,input:{recordType:string;status:string;title:string;data?:any}){if(!databaseConfigured())return {id:'demo_record_'+Date.now(),...input};const [r]=await sql()`insert into plant_records(organization_id,facility_id,record_type,status,title,data,created_by) values(${orgId}::uuid,${facilityId}::uuid,${input.recordType},${input.status},${input.title},${sql().json(input.data||{})},${userId}::uuid) returning id::text,record_type as "recordType",status,title,data,occurred_at as "occurredAt"`;return r}
+export async function resolveLoginIdentity(email:string,fallback:{userId:string;email:string;name:string;role:string;organizationId:string;facilityIds:string[]}){if(!databaseConfigured())return fallback;const [row]=await sql()`select u.id::text as "userId",u.email,u.name,m.role,m.organization_id::text as "organizationId" from users u join memberships m on m.user_id=u.id and m.status='active' where lower(u.email)=lower(${email}) order by m.role limit 1`;if(!row)return fallback;const fs=await sql()`select fm.facility_id::text as id from facility_memberships fm where fm.user_id=${row.userId}::uuid`;return {...row,facilityIds:fs.map((x:any)=>x.id)}}

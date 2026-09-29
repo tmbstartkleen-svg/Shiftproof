@@ -1,29 +1,28 @@
-# ShiftProof ONE Cloud v8
+# ShiftProof ONE Cloud v10
 
-The v8 cloud edition is the first authenticated hosted-preview architecture.
+v10 is the activation build for the hosted SaaS edition.
 
-## What changed
-- Signed, expiring HTTP-only cloud sessions
-- Tenant-scoped session context
-- Facility allow-list enforcement
-- Role/capability authorization
-- Protected enterprise, facility, and Ask-the-Plant APIs
-- Managed Postgres adapter using `postgres`
-- Expanded Postgres schema for identity, facilities, evidence, integrations, and audits
-- Token-protected connector webhook endpoint
-- Optional OpenAI-compatible Shift Commander provider with grounded fallback
+## Added
+- Managed Postgres migration runner and seed script
+- Organization onboarding
+- Facility creation
+- Tenant administration dashboard
+- Invitation creation with hashed one-time tokens and 7-day expiry
+- Invitation acceptance that provisions users, organization memberships, and facility memberships
+- Persistent plant_records table and tenant-scoped records API
+- Provider-neutral identity adapter with demo fallback
 
-## Preview credentials
-When `SHIFTPROOF_DEMO_AUTH=true`, defaults are:
-- `plantmanager@demo.local`
-- `1111`
-
-Before a production launch, set `SHIFTPROOF_DEMO_AUTH=false`, provide a strong `SHIFTPROOF_SESSION_SECRET`, and connect a real identity provider.
-
-## Run
+## Run locally
 ```bash
 npm install
-npm run typecheck
-npm run build
+cp .env.example .env.local
 npm run dev
 ```
+
+## Database
+```bash
+npm run db:migrate
+npm run db:seed
+```
+
+Set `DATABASE_URL` before running migrations. Without it, the web app uses demo fallback data.

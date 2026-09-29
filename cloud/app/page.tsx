@@ -1,4 +1,2 @@
-import { redirect } from "next/navigation";
-import LoginForm from "@/components/LoginForm";
-import { getSession } from "@/lib/auth";
-export default async function Home(){const s=await getSession();if(s)redirect('/dashboard');return <main className="loginPage"><section className="loginHero"><div className="logo">SP</div><p className="eyebrow">SHIFTProof ONE · CLOUD V8</p><h1>The operating system for the physical plant.</h1><p>Production, sanitation, quality, maintenance, evidence, handoffs and plant intelligence in one tenant-aware cloud layer.</p></section><section className="loginPanel"><p className="eyebrow">SECURE PREVIEW</p><h2>Sign in</h2><LoginForm/></section></main>}
+import LoginForm from '@/components/LoginForm';
+export default function Home(){return <main className="loginShell"><section className="loginHero"><div className="logo">SP</div><p className="eyebrow">SHIFTPROOF ONE · V10</p><h1>The plant operating record.</h1><p>Production, sanitation, quality, maintenance, proof, handoffs, and enterprise visibility in one tenant-safe system.</p><div className="chips"><span>Production</span><span>Sanitation</span><span>Quality</span><span>Maintenance</span><span>Proof</span><span>AI</span></div></section><section className="loginPanel"><p className="eyebrow">CLOUD ACTIVATION</p><h2>Sign in</h2><LoginForm/></section></main>}
