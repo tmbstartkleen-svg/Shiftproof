@@ -1,10 +1,3 @@
-import { NextRequest, NextResponse } from "next/server";
-
-export async function POST(request: NextRequest, { params }: { params: Promise<{ connectorId: string }> }) {
-  const { connectorId } = await params;
-  const token = request.headers.get("x-shiftproof-token");
-  const expected = process.env[`CONNECTOR_${connectorId.toUpperCase()}_TOKEN`];
-  if (expected && token !== expected) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  const payload = await request.json().catch(() => ({}));
-  return NextResponse.json({ ok: true, connectorId, receivedAt: new Date().toISOString(), acceptedKeys: Object.keys(payload).slice(0, 20) });
-}
+import { NextResponse } from "next/server";
+import crypto from "node:crypto";
+export async function POST(req:Request,{params}:{params:Promise<{connectorId:string}>}){const secret=process.env.SHIFTPROOF_WEBHOOK_SECRET;if(!secret)return NextResponse.json({ok:false,error:'webhook secret not configured'},{status:503});const provided=req.headers.get('x-shiftproof-token')||'';const a=Buffer.from(provided),b=Buffer.from(secret);if(a.length!==b.length||!crypto.timingSafeEqual(a,b))return NextResponse.json({ok:false,error:'unauthorized'},{status:401});const {connectorId}=await params;const payload=await req.json().catch(()=>({}));return NextResponse.json({ok:true,connectorId,acceptedAt:new Date().toISOString(),keys:Object.keys(payload).slice(0,20)},{status:202})}
