@@ -20,7 +20,7 @@ export async function pilotHardeningStatus(organizationId: string) {
   const passed = Object.values(checks).filter(Boolean).length;
   const total = Object.keys(checks).length;
   return {
-    version: '14.0.0', score: Math.round((passed / total) * 100), passed, total, checks, recovery,
+    version: '17.0.0', score: Math.round((passed / total) * 100), passed, total, checks, recovery,
     controlledPilotReady: checks.database && checks.privateEvidence && checks.rateLimiting && checks.securityHeaders && checks.auditExport && checks.permissionTests,
     productionReady: services.productionReady && checks.notificationProvider && recovery.database,
   };
