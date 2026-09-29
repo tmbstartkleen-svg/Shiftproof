@@ -1,5 +1,3 @@
-import 'server-only';
-
 function normalizedOrigin(value:string){try{return new URL(value).origin}catch{return ''}}
 
 export function mutationOriginAllowed(req:Request){
