@@ -1,3 +1,5 @@
+import "server-only";
+
 export type DatabaseMode = "postgres" | "demo";
 
 export function databaseMode(): DatabaseMode {
@@ -9,7 +11,18 @@ export function databaseStatus() {
     mode: databaseMode(),
     configured: Boolean(process.env.DATABASE_URL),
     message: process.env.DATABASE_URL
-      ? "Postgres connection string configured."
-      : "Demo repository active; set DATABASE_URL to enable managed Postgres."
+      ? "Managed Postgres connection configured."
+      : "Seeded demo repository active; set DATABASE_URL to enable managed Postgres."
   };
+}
+
+export async function sql<T = Record<string, unknown>>(strings: TemplateStringsArray, ...values: unknown[]): Promise<T[]> {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not configured");
+  const postgres = (await import("postgres")).default;
+  const client = postgres(process.env.DATABASE_URL, { ssl: "require", max: 1 });
+  try {
+    return await client<T[]>(strings, ...values);
+  } finally {
+    await client.end({ timeout: 1 });
+  }
 }
