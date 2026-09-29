@@ -1,33 +1,9 @@
-# ShiftProof ONE v11 Architecture
+# ShiftProof ONE v12 Architecture
 
-## Product architecture
+v12 preserves the dual-edition architecture: the repository root remains the local pilot application while `cloud/` is the Next.js SaaS edition.
 
-Local Pilot Edition -> Python/SQLite at repository root.
+The deployment layer now has a full promotion chain:
 
-Cloud SaaS Edition -> Next.js App Router in `cloud/` with tenant-scoped Postgres-ready services.
+GitHub preview branch → preflight → typecheck → Next.js build → Vercel project bootstrap/link → Vercel preview build → preview deploy → smoke/release checks → deployment artifact → controlled promotion.
 
-## Tenant hierarchy
-
-Organization -> Facility -> Department -> Line -> Asset -> Plant Record / Evidence / Event.
-
-## Deployment pipeline
-
-Source branch -> structural preflight -> typecheck -> Next.js build -> Vercel prebuild -> preview deploy -> live smoke tests -> manual promote.
-
-The preview and production workflows use the same built deployment artifact. Promotion occurs only after the exact preview URL passes live health/session smoke tests.
-
-## Runtime readiness
-
-`/api/health` reports application health and activation features.
-
-`/api/readiness` reports preview readiness, production readiness, database status, production identity status, strong session-secret configuration, HTTPS base URL, environment, and commit SHA.
-
-`/deployment` exposes the same gates in the UI.
-
-## Security boundaries
-
-- HTTP-only signed sessions.
-- Organization and facility scope enforced server-side.
-- Invitation tokens stored as SHA-256 hashes.
-- Preview/demo authentication separable from production identity.
-- Production readiness requires managed database, production identity, strong session secret, and HTTPS base URL.
+The Vercel project name and team scope are configuration, not secrets. The deployment token remains secret. Cloud runtime secrets such as database credentials and production identity credentials remain Vercel environment variables and are never committed.

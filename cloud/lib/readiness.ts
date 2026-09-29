@@ -11,7 +11,7 @@ export function deploymentReadiness() {
   const previewReady = sessionSecret || demoAuth;
   const productionReady = Boolean(database.configured && identity.productionReady && sessionSecret && baseUrl.startsWith('https://'));
   return {
-    version: '11.0.0',
+    version: '12.0.0',
     environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'local',
     commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'local',
     previewReady,

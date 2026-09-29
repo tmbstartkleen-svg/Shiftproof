@@ -1,6 +1,6 @@
 {
   "name": "shiftproof-cloud",
-  "version": "11.0.0",
+  "version": "12.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,9 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "preflight": "node scripts/preflight.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "vercel:bootstrap": "node scripts/vercel-bootstrap.mjs",
+    "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

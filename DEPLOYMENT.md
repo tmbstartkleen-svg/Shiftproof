@@ -1,36 +1,39 @@
-# ShiftProof ONE v11 Deployment
+# ShiftProof ONE v12 Deployment
 
-v11 adds a repeatable preview -> test -> promote deployment path.
+## Required GitHub secret
 
-## Required GitHub repository secrets
+`VERCEL_TOKEN`
 
-- VERCEL_TOKEN
-- VERCEL_ORG_ID
-- VERCEL_PROJECT_ID
-- SHIFTPROOF_SMOKE_EMAIL
-- SHIFTPROOF_SMOKE_PASSWORD
+That is the only credential required by the v12 preview workflow. Do not commit the token.
 
-## Vercel project configuration
+## Optional repository variables
 
-- Framework: Next.js
-- Root Directory: cloud
-- Build Command: npm run build
-- Install Command: npm install
+- `VERCEL_SCOPE` — defaults to `tblevins-1457s-projects`
+- `VERCEL_PROJECT_NAME` — defaults to `shiftproof-one`
 
 ## Preview testing
 
-Push a branch named `preview/<name>` or run the `ShiftProof Preview Deploy` workflow manually.
-
-The workflow runs:
-
-1. npm ci
-2. structural preflight
-3. TypeScript typecheck
-4. Next.js build
-5. Vercel prebuild
-6. preview deploy
-7. live smoke test against /api/health, /api/readiness, login, and /api/auth/me
+Push a commit to any `preview/**` branch. The `ShiftProof Preview Deploy` workflow will validate and build the app. If `VERCEL_TOKEN` is available, it will also create/find the Vercel project, link it, deploy a preview, smoke-test the live URL, and upload `deployment-result.json` as a workflow artifact.
 
 ## Production promotion
 
-Run `ShiftProof Production Promote` manually with a validated preview URL and `PROMOTE` confirmation. It smoke-tests that exact URL again before calling `vercel promote`.
+Use the `ShiftProof Production Promote` workflow. Provide the validated preview URL and type `PROMOTE`. The workflow re-runs smoke and release checks against that exact URL before promotion.
+
+## Local Vercel bootstrap
+
+From `cloud/`:
+
+```bash
+export VERCEL_TOKEN='<token>'
+npm run vercel:bootstrap -- --apply
+```
+
+Without `--apply`, the command is a dry run and prints the commands it would execute.
+
+## Test endpoints
+
+- `/api/health`
+- `/api/readiness`
+- `/api/deployment/status`
+- `/api/auth/login`
+- `/api/auth/me`

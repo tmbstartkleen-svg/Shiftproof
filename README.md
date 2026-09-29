@@ -1,19 +1,36 @@
-# ShiftProof ONE v11
+# ShiftProof ONE v12
 
-ShiftProof ONE v11 is the deployment and test-gate build. It preserves the local pilot edition at the repository root and advances the `cloud/` Next.js SaaS edition toward repeatable preview deployments and controlled production promotion.
+v12 is the live-infrastructure bootstrap build. The cloud application can now validate itself, create or find its dedicated Vercel project from CI, link that project, build a preview artifact, deploy it, smoke-test the live URL, save a deployment report, and promote the exact tested artifact.
 
-## v11 focus
+## Main v12 change
 
-- Deployment readiness endpoint and UI
-- Structural preflight checks
-- Live preview smoke tests
-- GitHub Actions preview deployment workflow
-- Separate manual production promotion workflow
-- Exact-artifact preview -> test -> promote flow
-- Managed Postgres, onboarding, invitations, tenant isolation, and plant-record persistence retained from v10
+The preview workflow now needs only one sensitive GitHub Actions secret:
 
-## Cloud deployment root
+- `VERCEL_TOKEN`
 
-Set the Vercel Root Directory to `cloud`.
+The workflow defaults to:
 
-See `DEPLOYMENT.md` for the required Vercel/GitHub configuration.
+- Vercel scope: `tblevins-1457s-projects`
+- Vercel project: `shiftproof-one`
+- Project root: `cloud/`
+
+`VERCEL_SCOPE` and `VERCEL_PROJECT_NAME` may be overridden with GitHub repository variables, but they are not secrets.
+
+## Deployment sequence
+
+1. Install dependencies
+2. Structural preflight
+3. TypeScript validation
+4. Next.js production build
+5. Verify Vercel authorization
+6. Create/find `shiftproof-one`
+7. Link the cloud directory
+8. Pull preview environment
+9. Vercel prebuild
+10. Preview deploy
+11. Login/session smoke test
+12. Health/readiness/deployment endpoint checks
+13. Upload deployment result artifact
+14. Promote the exact validated preview through the production workflow
+
+See `DEPLOYMENT.md` for the operational flow.
