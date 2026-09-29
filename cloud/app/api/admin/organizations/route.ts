@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { createOrganization } from "@/lib/repository";
+export async function POST(req:Request){const s=await getSession();if(!s)return NextResponse.json({error:"unauthorized"},{status:401});if(!["Owner","Administrator"].includes(s.role))return NextResponse.json({error:"forbidden"},{status:403});const b=await req.json();if(!b.name||!b.slug)return NextResponse.json({error:"name and slug required"},{status:400});try{return NextResponse.json({ok:true,organization:await createOrganization(b.name,b.slug)},{status:201});}catch(e:any){return NextResponse.json({error:e.message},{status:400});}}
