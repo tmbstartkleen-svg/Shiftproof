@@ -7,7 +7,7 @@ export function deploymentControlStatus() {
   const deploymentUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '';
   const commit = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'local';
   return {
-    version: '12.0.0',
+    version: '13.0.0',
     environment: vercelEnv || process.env.NODE_ENV || 'local',
     commit,
     deploymentUrl,

@@ -1,39 +1,21 @@
-# ShiftProof ONE v12 Deployment
+# ShiftProof ONE v13 Deployment
 
-## Required GitHub secret
+## Required GitHub Actions secret
 
-`VERCEL_TOKEN`
+- `VERCEL_TOKEN`
 
-That is the only credential required by the v12 preview workflow. Do not commit the token.
+## Runtime cloud-service variables
 
-## Optional repository variables
+- `DATABASE_URL`
+- `SHIFTPROOF_SESSION_SECRET`
+- `SHIFTPROOF_DEMO_AUTH=false` for production
+- `SHIFTPROOF_BASE_URL`
+- `BLOB_READ_WRITE_TOKEN` or Vercel OIDC-backed Blob access
+- `SHIFTPROOF_NOTIFICATION_WEBHOOK_URL` when notifications are enabled
+- production identity provider variables when external identity is enabled
 
-- `VERCEL_SCOPE` — defaults to `tblevins-1457s-projects`
-- `VERCEL_PROJECT_NAME` — defaults to `shiftproof-one`
+## Verification
 
-## Preview testing
+The preview pipeline runs preflight, typecheck, Next.js build, Vercel bootstrap/deploy when authorized, smoke checks, release checks, and uploads a deployment report artifact.
 
-Push a commit to any `preview/**` branch. The `ShiftProof Preview Deploy` workflow will validate and build the app. If `VERCEL_TOKEN` is available, it will also create/find the Vercel project, link it, deploy a preview, smoke-test the live URL, and upload `deployment-result.json` as a workflow artifact.
-
-## Production promotion
-
-Use the `ShiftProof Production Promote` workflow. Provide the validated preview URL and type `PROMOTE`. The workflow re-runs smoke and release checks against that exact URL before promotion.
-
-## Local Vercel bootstrap
-
-From `cloud/`:
-
-```bash
-export VERCEL_TOKEN='<token>'
-npm run vercel:bootstrap -- --apply
-```
-
-Without `--apply`, the command is a dry run and prints the commands it would execute.
-
-## Test endpoints
-
-- `/api/health`
-- `/api/readiness`
-- `/api/deployment/status`
-- `/api/auth/login`
-- `/api/auth/me`
+The `/services` page shows database, evidence, identity, notification, pilot-readiness, and production-readiness status without exposing secret values.

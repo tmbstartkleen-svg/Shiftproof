@@ -89,7 +89,7 @@ jobs:
           url=$(vercel deploy --prebuilt --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}')
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Preview: $url" >> "$GITHUB_STEP_SUMMARY"
-          printf '{"version":"12.0.0","commit":"%s","previewUrl":"%s","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$url" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
+          printf '{"version":"13.0.0","commit":"%s","previewUrl":"%s","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$url" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
 
       - name: Smoke test preview
         if: steps.deploycheck.outputs.ready == 'true'
@@ -109,12 +109,12 @@ jobs:
         if: steps.deploycheck.outputs.ready != 'true'
         shell: bash
         run: |
-          printf '{"version":"12.0.0","commit":"%s","previewUrl":null,"deploySkipped":true,"reason":"missing VERCEL_TOKEN"}\n' "$GITHUB_SHA" > deployment-result.json
+          printf '{"version":"13.0.0","commit":"%s","previewUrl":null,"deploySkipped":true,"reason":"missing VERCEL_TOKEN"}\n' "$GITHUB_SHA" > deployment-result.json
 
       - name: Upload deployment report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shiftproof-v12-deployment-report
+          name: shiftproof-v13-deployment-report
           path: cloud/deployment-result.json
           if-no-files-found: error

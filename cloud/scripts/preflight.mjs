@@ -15,7 +15,11 @@ const required = [
   'lib/readiness.ts',
   'db/schema.sql',
   'db/migrations/0002_tenant_admin.sql',
-  'db/migrations/0003_activation.sql'
+  'db/migrations/0003_activation.sql',
+  'db/migrations/0004_live_services.sql',
+  'app/api/services/status/route.ts',
+  'app/api/facilities/[facilityId]/evidence/route.ts',
+  'app/services/page.tsx'
 ];
 const missing = required.filter((f) => !fs.existsSync(path.join(root, f)));
 if (missing.length) {
@@ -23,15 +27,15 @@ if (missing.length) {
   process.exit(1);
 }
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-if (pkg.version !== '12.0.0') {
-  console.error('PRECHECK_FAIL package version must be 12.0.0');
+if (pkg.version !== '13.0.0') {
+  console.error('PRECHECK_FAIL package version must be 13.0.0');
   process.exit(1);
 }
 const env = fs.readFileSync(path.join(root, '.env.example'), 'utf8');
-for (const key of ['DATABASE_URL','SHIFTPROOF_SESSION_SECRET','SHIFTPROOF_DEMO_AUTH','SHIFTPROOF_BASE_URL']) {
+for (const key of ['DATABASE_URL','SHIFTPROOF_SESSION_SECRET','SHIFTPROOF_DEMO_AUTH','SHIFTPROOF_BASE_URL','BLOB_READ_WRITE_TOKEN','SHIFTPROOF_NOTIFICATION_WEBHOOK_URL']) {
   if (!env.includes(key + '=')) {
     console.error('PRECHECK_FAIL missing env template key:', key);
     process.exit(1);
   }
 }
-console.log('PRECHECK_OK ShiftProof v12 deployment files are structurally ready.');
+console.log('PRECHECK_OK ShiftProof v13 live-service files are structurally ready.');

@@ -19,7 +19,7 @@ export default function DeploymentPage() {
   return <main className="deployPage">
     <div className="deployHero">
       <p className="eyebrow">DEPLOYMENT CONTROL</p>
-      <h1>ShiftProof ONE v12</h1>
+      <h1>ShiftProof ONE v13</h1>
       <p>Validate → build → preview deploy → smoke test → inspect → promote the exact artifact.</p>
       <div className="deployMeta"><span>{d.environment}</span><span>{d.commit.slice(0, 10)}</span></div>
     </div>
@@ -27,7 +27,7 @@ export default function DeploymentPage() {
       {rows.map(([label, ok]) => <article key={label} className="deployCard"><span>{label}</span><strong className={ok ? 'ready' : 'pending'}>{ok ? 'READY' : 'PENDING'}</strong></article>)}
     </section>
     <section className="deployPanel">
-      <h2>v12 deployment contract</h2>
+      <h2>v13 deployment contract</h2>
       <p><b>GitHub secret:</b> <code>VERCEL_TOKEN</code></p>
       <p><b>Optional GitHub variables:</b> <code>VERCEL_SCOPE</code>, <code>VERCEL_PROJECT_NAME</code></p>
       <p><b>Vercel project:</b> <code>shiftproof-one</code> under <code>tblevins-1457s-projects</code></p><p><b>Vercel project root:</b> <code>cloud</code></p>

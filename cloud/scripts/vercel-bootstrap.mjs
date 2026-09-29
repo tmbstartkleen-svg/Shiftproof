@@ -37,5 +37,5 @@ const linked = JSON.parse(readFileSync(projectFile, 'utf8'));
 console.log('\nLINK_OK');
 console.log(`VERCEL_ORG_ID=${linked.orgId || ''}`);
 console.log(`VERCEL_PROJECT_ID=${linked.projectId || ''}`);
-console.log('\nStore VERCEL_ORG_ID and VERCEL_PROJECT_ID as GitHub Actions repository variables.');
-console.log('Store VERCEL_TOKEN as a GitHub Actions repository secret.');
+console.log('\nThe project IDs above are informational; the v12 workflow can link by project name.');
+console.log('Store only VERCEL_TOKEN as a GitHub Actions repository secret.');

@@ -1,18 +1,17 @@
-# ShiftProof Cloud v12
+# ShiftProof Cloud v13
 
 Next.js SaaS edition for ShiftProof ONE.
-
-Useful commands:
 
 ```bash
 npm install
 npm run preflight
 npm run typecheck
 npm run build
-npm run vercel:bootstrap
+npm run db:migrate
+npm run db:seed
 npm run vercel:bootstrap -- --apply
 npm run smoke
 npm run release:check
 ```
 
-The Vercel bootstrap defaults to project `shiftproof-one` under team `tblevins-1457s-projects` and may be overridden through environment variables.
+v13 adds private Vercel Blob evidence uploads, live-service readiness, notification-provider hooks, and migration `0004_live_services.sql` while retaining v12's deployment/promotion gate.

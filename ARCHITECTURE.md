@@ -1,9 +1,12 @@
-# ShiftProof ONE v12 Architecture
+# ShiftProof ONE v13 Architecture
 
-v12 preserves the dual-edition architecture: the repository root remains the local pilot application while `cloud/` is the Next.js SaaS edition.
+v13 keeps the dual-edition model: the repository root remains the local pilot application while `cloud/` is the hosted Next.js SaaS edition.
 
-The deployment layer now has a full promotion chain:
+The cloud control plane now separates four production services behind adapters:
 
-GitHub preview branch → preflight → typecheck → Next.js build → Vercel project bootstrap/link → Vercel preview build → preview deploy → smoke/release checks → deployment artifact → controlled promotion.
+1. **Database** — managed Postgres via `DATABASE_URL`
+2. **Evidence** — private Vercel Blob storage with SHA-256 evidence metadata in Postgres
+3. **Identity** — demo or external production identity provider
+4. **Notifications** — provider-neutral webhook delivery with database delivery logs
 
-The Vercel project name and team scope are configuration, not secrets. The deployment token remains secret. Cloud runtime secrets such as database credentials and production identity credentials remain Vercel environment variables and are never committed.
+Operational records remain tenant/facility scoped. Evidence is never intentionally public in the v13 Vercel Blob path. The CI/CD chain remains preview branch → preflight → typecheck → Next.js build → Vercel bootstrap/link → preview deployment → smoke/release checks → controlled promotion.
