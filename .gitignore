@@ -8,3 +8,9 @@ uploads/*
 !uploads/.keep
 .env
 .env.*
+cloud/node_modules/
+cloud/.next/
+cloud/.vercel/
+cloud/.env
+cloud/.env.local
+cloud/*.tsbuildinfo
