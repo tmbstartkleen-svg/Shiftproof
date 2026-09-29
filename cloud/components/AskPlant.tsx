@@ -1,0 +1,3 @@
+"use client";
+import { useState } from "react";
+export default function AskPlant(){const [q,setQ]=useState('Which plant needs attention?');const [result,setResult]=useState<any>(null);const [busy,setBusy]=useState(false);return <div className="ask"><div className="askrow"><input value={q} onChange={e=>setQ(e.target.value)} /><button onClick={async()=>{setBusy(true);const r=await fetch('/api/ai/ask',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:q})});setResult(await r.json());setBusy(false)}}>{busy?'Analyzing…':'Ask the Plant'}</button></div>{result&&<div className="answer"><b>{result.provider}</b><p>{result.answer}</p><small>Evidence: {(result.evidence||[]).join(', ')}</small></div>}</div>}
