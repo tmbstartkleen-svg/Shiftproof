@@ -1,0 +1,1 @@
+import type {MetadataRoute} from 'next';export default function manifest():MetadataRoute.Manifest{return {name:'ShiftProof ONE',short_name:'ShiftProof',description:'Plant execution and proof operating system',start_url:'/',display:'standalone',background_color:'#071018',theme_color:'#071018'}}

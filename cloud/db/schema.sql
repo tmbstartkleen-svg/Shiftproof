@@ -9,3 +9,7 @@ create table if not exists integration_events(id bigserial primary key,organizat
 create table if not exists audit_events(id bigserial primary key,organization_id uuid not null references organizations(id),facility_id uuid references facilities(id),user_id uuid references users(id),action text not null,entity_type text not null,entity_id text not null,detail jsonb not null default '{}'::jsonb,created_at timestamptz not null default now());
 create index if not exists audit_events_org_facility_created_idx on audit_events(organization_id,facility_id,created_at desc);
 create index if not exists integration_events_org_received_idx on integration_events(organization_id,received_at desc);
+create table if not exists rate_limit_counters(bucket_key text not null,window_start timestamptz not null,hits integer not null default 0,primary key(bucket_key,window_start));
+create index if not exists rate_limit_counters_window_idx on rate_limit_counters(window_start);
+create table if not exists pilot_checks(id bigserial primary key,organization_id uuid references organizations(id) on delete cascade,check_name text not null,status text not null,detail jsonb not null default '{}'::jsonb,created_at timestamptz not null default now());
+create index if not exists pilot_checks_org_created_idx on pilot_checks(organization_id,created_at desc);

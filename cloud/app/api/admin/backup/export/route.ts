@@ -1,0 +1,5 @@
+import { NextResponse } from 'next/server';
+import { getSession, canAdmin } from '@/lib/auth';
+import { buildApplicationBackup } from '@/lib/recovery';
+import { enforceRateLimit } from '@/lib/rate-limit';
+export async function GET(){const session=await getSession();if(!session)return NextResponse.json({ok:false,error:'unauthorized'},{status:401});if(!canAdmin(session.role))return NextResponse.json({ok:false,error:'forbidden'},{status:403});const limit=await enforceRateLimit(`backup-export:${session.userId}`,3,900);if(!limit.allowed)return NextResponse.json({ok:false,error:'rate_limited',retryAfter:limit.retryAfter},{status:429,headers:{'Retry-After':String(limit.retryAfter)}});const backup=await buildApplicationBackup(session.organizationId,session.userId);return new Response(JSON.stringify(backup,null,2),{headers:{'content-type':'application/json; charset=utf-8','content-disposition':`attachment; filename="shiftproof-backup-${new Date().toISOString().replaceAll(':','-')}.json"`,'cache-control':'no-store'}})}

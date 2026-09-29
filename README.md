@@ -1,19 +1,5 @@
-# ShiftProof ONE v13
+# ShiftProof ONE v14 — Pilot Hardening
 
-v13 is the live-services activation build. It extends the green v12 deployment gate with managed-Postgres activation, private evidence storage, notification-provider delivery logging, persistent plant records, and a service-readiness control plane.
+v14 is the controlled-pilot hardening build. It adds database-backed rate limiting, audit exports, application-level recovery exports, structured operational logging, automated permission-matrix tests, security headers, mobile metadata, a pilot-readiness dashboard, and a deployment workflow that always emits a diagnostic report even when Vercel authorization fails.
 
-## v13 live services
-
-- managed Postgres through `DATABASE_URL`
-- migration/seed workflow
-- tenant-scoped persistent plant records
-- private Vercel Blob evidence uploads
-- SHA-256 evidence fingerprints + database metadata
-- notification webhook provider + delivery audit records
-- production identity readiness hooks
-- `/services` live-services control page
-- `/api/services/status`
-- `/api/facilities/[facilityId]/evidence`
-- `/api/notifications/test`
-
-The v12 preview/build/promotion pipeline remains in place. If the repository has `VERCEL_TOKEN`, preview branches can continue through a real Vercel deployment; otherwise the build/test gate still runs and reports the missing credential boundary explicitly.
+The application backup export is an application-level JSON recovery package. It does not claim to be a physical PostgreSQL backup or a backup of private Blob bytes.

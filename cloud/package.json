@@ -1,6 +1,6 @@
 {
   "name": "shiftproof-cloud",
-  "version": "13.0.0",
+  "version": "14.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,9 @@
     "preflight": "node scripts/preflight.mjs",
     "smoke": "node scripts/smoke.mjs",
     "vercel:bootstrap": "node scripts/vercel-bootstrap.mjs",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "test:permissions": "tsx scripts/permission-test.ts",
+    "recovery:check": "node scripts/recovery-check.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

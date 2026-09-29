@@ -3,15 +3,10 @@ name: ShiftProof Preview Deploy
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - 'cloud/**'
-      - '.github/workflows/shiftproof-preview.yml'
+    paths: ['cloud/**','.github/workflows/shiftproof-preview.yml']
   push:
-    branches:
-      - 'preview/**'
-    paths:
-      - 'cloud/**'
-      - '.github/workflows/shiftproof-preview.yml'
+    branches: ['preview/**']
+    paths: ['cloud/**','.github/workflows/shiftproof-preview.yml']
 
 permissions:
   contents: read
@@ -23,7 +18,7 @@ jobs:
       run:
         working-directory: cloud
     env:
-      VERCEL_CLI_VERSION: 59.19.1
+      VERCEL_CLI_VERSION: 61.0.0
       VERCEL_SCOPE: ${{ vars.VERCEL_SCOPE || 'tblevins-1457s-projects' }}
       VERCEL_PROJECT_NAME: ${{ vars.VERCEL_PROJECT_NAME || 'shiftproof-one' }}
       HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
@@ -32,55 +27,54 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Install dependencies
         run: npm install
-
       - name: Structural preflight
         run: npm run preflight
-
       - name: Typecheck
         run: npm run typecheck
-
+      - name: Permission matrix tests
+        run: npm run test:permissions
       - name: Next.js build
         run: npm run build
-
-      - name: Check Vercel deploy authorization
+      - name: Initialize deployment report
+        shell: bash
+        run: printf '{"version":"14.0.0","commit":"%s","previewUrl":null,"status":"validated","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
+      - name: Install pinned Vercel CLI
+        if: env.HAS_VERCEL_TOKEN == 'true'
+        run: npm install --global vercel@${VERCEL_CLI_VERSION}
+      - name: Validate Vercel token
+        id: tokencheck
+        if: env.HAS_VERCEL_TOKEN == 'true'
+        continue-on-error: true
+        run: vercel whoami --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
+      - name: Determine deploy readiness
         id: deploycheck
         shell: bash
+        env:
+          TOKEN_CHECK_OUTCOME: ${{ steps.tokencheck.outcome }}
         run: |
-          if [ -n "${{ secrets.VERCEL_TOKEN }}" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-            echo "Vercel token is configured. Project bootstrap/deploy will run." >> "$GITHUB_STEP_SUMMARY"
-          else
+          if [ "$HAS_VERCEL_TOKEN" != "true" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Validation passed. Live Vercel deployment skipped because VERCEL_TOKEN is not configured as a repository secret." >> "$GITHUB_STEP_SUMMARY"
+            echo "reason=missing VERCEL_TOKEN" >> "$GITHUB_OUTPUT"
+          elif [ "$TOKEN_CHECK_OUTCOME" != "success" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "reason=VERCEL_TOKEN rejected by Vercel" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "reason=authorized" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Install pinned Vercel CLI
-        if: steps.deploycheck.outputs.ready == 'true'
-        run: npm install --global vercel@${VERCEL_CLI_VERSION}
-
       - name: Ensure ShiftProof Vercel project exists
         if: steps.deploycheck.outputs.ready == 'true'
-        shell: bash
         run: |
-          if vercel project inspect "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}' >/dev/null 2>&1; then
-            echo "Project $VERCEL_PROJECT_NAME already exists."
-          else
-            vercel project add "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
-          fi
+          vercel project inspect "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}' >/dev/null 2>&1 || vercel project add "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
           vercel link --yes --project "$VERCEL_PROJECT_NAME" --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
-          cat .vercel/project.json
-
       - name: Pull preview environment
         if: steps.deploycheck.outputs.ready == 'true'
         run: vercel pull --yes --environment=preview --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
-
       - name: Vercel prebuild
         if: steps.deploycheck.outputs.ready == 'true'
         run: vercel build --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}'
-
       - name: Deploy preview artifact
         if: steps.deploycheck.outputs.ready == 'true'
         id: deploy
@@ -88,9 +82,7 @@ jobs:
         run: |
           url=$(vercel deploy --prebuilt --scope "$VERCEL_SCOPE" --token='${{ secrets.VERCEL_TOKEN }}')
           echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "Preview: $url" >> "$GITHUB_STEP_SUMMARY"
-          printf '{"version":"13.0.0","commit":"%s","previewUrl":"%s","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$url" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
-
+          printf '{"version":"14.0.0","commit":"%s","previewUrl":"%s","status":"deployed","project":"%s","scope":"%s"}\n' "$GITHUB_SHA" "$url" "$VERCEL_PROJECT_NAME" "$VERCEL_SCOPE" > deployment-result.json
       - name: Smoke test preview
         if: steps.deploycheck.outputs.ready == 'true'
         env:
@@ -98,23 +90,23 @@ jobs:
           SHIFTPROOF_SMOKE_EMAIL: ${{ secrets.SHIFTPROOF_SMOKE_EMAIL }}
           SHIFTPROOF_SMOKE_PASSWORD: ${{ secrets.SHIFTPROOF_SMOKE_PASSWORD }}
         run: npm run smoke
-
       - name: Release endpoint check
         if: steps.deploycheck.outputs.ready == 'true'
         env:
           BASE_URL: ${{ steps.deploy.outputs.url }}
         run: npm run release:check
-
+      - name: Recovery public check
+        if: steps.deploycheck.outputs.ready == 'true'
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: npm run recovery:check
       - name: Save no-deploy result
         if: steps.deploycheck.outputs.ready != 'true'
-        shell: bash
-        run: |
-          printf '{"version":"13.0.0","commit":"%s","previewUrl":null,"deploySkipped":true,"reason":"missing VERCEL_TOKEN"}\n' "$GITHUB_SHA" > deployment-result.json
-
+        run: printf '{"version":"14.0.0","commit":"%s","previewUrl":null,"status":"deploy-skipped","reason":"%s"}\n' "$GITHUB_SHA" '${{ steps.deploycheck.outputs.reason }}' > deployment-result.json
       - name: Upload deployment report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shiftproof-v13-deployment-report
+          name: shiftproof-v14-deployment-report
           path: cloud/deployment-result.json
           if-no-files-found: error

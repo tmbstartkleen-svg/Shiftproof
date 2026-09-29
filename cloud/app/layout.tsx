@@ -1,3 +1,1 @@
-import './globals.css';
-export const metadata={title:'ShiftProof ONE v12',description:'Plant execution and proof operating system'};
-export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}
+import type {Metadata,Viewport} from 'next';import './globals.css';export const metadata:Metadata={title:'ShiftProof ONE v14',description:'Plant execution and proof operating system',applicationName:'ShiftProof ONE',manifest:'/manifest.webmanifest'};export const viewport:Viewport={width:'device-width',initialScale:1,viewportFit:'cover',themeColor:'#071018'};export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en"><body>{children}</body></html>}
