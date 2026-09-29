@@ -1,6 +1,6 @@
 {
   "name": "shiftproof-cloud",
-  "version": "10.0.0",
+  "version": "11.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,7 +8,9 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "preflight": "node scripts/preflight.mjs",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "next": "^16.0.0",

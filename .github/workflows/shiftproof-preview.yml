@@ -1,0 +1,75 @@
+name: ShiftProof Preview Deploy
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'cloud/**'
+      - '.github/workflows/shiftproof-preview.yml'
+  push:
+    branches:
+      - 'preview/**'
+    paths:
+      - 'cloud/**'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-preview:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    env:
+      VERCEL_CLI_VERSION: 59.19.1
+      HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Structural preflight
+        run: npm run preflight
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Next.js build
+        run: npm run build
+      - name: Check deploy credentials
+        id: deploycheck
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.VERCEL_TOKEN }}" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel deployment skipped: configure VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID repository secrets." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install pinned Vercel CLI
+        if: steps.deploycheck.outputs.ready == 'true'
+        run: npm install --global vercel@${VERCEL_CLI_VERSION}
+      - name: Pull preview environment
+        if: steps.deploycheck.outputs.ready == 'true'
+        run: vercel pull --yes --environment=preview --token='${{ secrets.VERCEL_TOKEN }}'
+      - name: Vercel prebuild
+        if: steps.deploycheck.outputs.ready == 'true'
+        run: vercel build --token='${{ secrets.VERCEL_TOKEN }}'
+      - name: Deploy preview artifact
+        if: steps.deploycheck.outputs.ready == 'true'
+        id: deploy
+        shell: bash
+        run: |
+          url=$(vercel deploy --prebuilt --token='${{ secrets.VERCEL_TOKEN }}')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Preview: $url" >> "$GITHUB_STEP_SUMMARY"
+      - name: Smoke test preview
+        if: steps.deploycheck.outputs.ready == 'true'
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+          SHIFTPROOF_SMOKE_EMAIL: ${{ secrets.SHIFTPROOF_SMOKE_EMAIL }}
+          SHIFTPROOF_SMOKE_PASSWORD: ${{ secrets.SHIFTPROOF_SMOKE_PASSWORD }}
+        run: npm run smoke

@@ -1,0 +1,42 @@
+name: ShiftProof Production Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: 'Validated Vercel preview URL to promote'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PROMOTE to continue'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    if: inputs.confirm == 'PROMOTE'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    env:
+      VERCEL_CLI_VERSION: 59.19.1
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global vercel@${VERCEL_CLI_VERSION}
+      - name: Smoke test exact preview before promotion
+        env:
+          BASE_URL: ${{ inputs.deployment_url }}
+          SHIFTPROOF_SMOKE_EMAIL: ${{ secrets.SHIFTPROOF_SMOKE_EMAIL }}
+          SHIFTPROOF_SMOKE_PASSWORD: ${{ secrets.SHIFTPROOF_SMOKE_PASSWORD }}
+        run: npm install && npm run smoke
+      - name: Promote validated artifact
+        run: vercel promote '${{ inputs.deployment_url }}' --token='${{ secrets.VERCEL_TOKEN }}'

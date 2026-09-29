@@ -1,19 +1,12 @@
-# ShiftProof ONE v7 Cloud Migration
+# ShiftProof Cloud Migration - v11
 
-v7 establishes a dual-edition architecture:
-
-- **Local Pilot Edition**: existing Python + SQLite application at repository root.
-- **Cloud SaaS Edition**: Next.js application under `cloud/` intended for Vercel.
-
-## Migration sequence
-
-1. Deploy `cloud/` as a preview project.
-2. Provision managed Postgres and apply `cloud/db/schema.sql`.
-3. Configure production authentication and tenant membership mapping.
-4. Move evidence blobs from local `uploads/` into managed object storage.
-5. Replace demo repository adapters with Postgres repositories.
-6. Connect email/push providers.
-7. Enable a production LLM provider for Shift Commander while preserving deterministic fallback.
-8. Add customer onboarding and billing only after tenant isolation tests pass.
-
-No secrets are committed. Vercel/GitHub credentials must remain in provider secret stores.
+1. Create a dedicated Vercel ShiftProof project with Root Directory `cloud`.
+2. Add VERCEL_TOKEN, VERCEL_ORG_ID, and VERCEL_PROJECT_ID to GitHub repository secrets.
+3. Add ShiftProof preview credentials to GitHub secrets for live smoke tests.
+4. Configure a managed Postgres DATABASE_URL in Vercel.
+5. Configure a 32+ character SHIFTPROOF_SESSION_SECRET.
+6. Configure SHIFTPROOF_BASE_URL to the HTTPS deployment URL.
+7. Keep SHIFTPROOF_DEMO_AUTH=true for preview testing; disable it for production identity cutover.
+8. Run database migrations and seed/bootstrap the first owner.
+9. Use the preview workflow for every deployment candidate.
+10. Promote only a preview URL that passes the live smoke suite.
