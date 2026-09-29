@@ -1,26 +1,29 @@
-# ShiftProof ONE Cloud v7
+# ShiftProof ONE Cloud v8
 
-This directory is the hosted SaaS migration target for ShiftProof ONE.
+The v8 cloud edition is the first authenticated hosted-preview architecture.
+
+## What changed
+- Signed, expiring HTTP-only cloud sessions
+- Tenant-scoped session context
+- Facility allow-list enforcement
+- Role/capability authorization
+- Protected enterprise, facility, and Ask-the-Plant APIs
+- Managed Postgres adapter using `postgres`
+- Expanded Postgres schema for identity, facilities, evidence, integrations, and audits
+- Token-protected connector webhook endpoint
+- Optional OpenAI-compatible Shift Commander provider with grounded fallback
+
+## Preview credentials
+When `SHIFTPROOF_DEMO_AUTH=true`, defaults are:
+- `plantmanager@demo.local`
+- `1111`
+
+Before a production launch, set `SHIFTPROOF_DEMO_AUTH=false`, provide a strong `SHIFTPROOF_SESSION_SECRET`, and connect a real identity provider.
 
 ## Run
-
 ```bash
 npm install
+npm run typecheck
+npm run build
 npm run dev
 ```
-
-Then open http://localhost:3000.
-
-## Vercel
-
-Create a Vercel project with **Root Directory** set to `cloud/`. Add the environment variables from `.env.example`. The app runs without external services in demo-adapter mode, then automatically reports cloud readiness as Postgres/storage/AI providers are configured.
-
-## Architecture goals
-
-- Tenant isolation by organization and facility
-- Managed Postgres-compatible schema
-- Evidence storage provider abstraction
-- Notification provider abstraction
-- Token-protected webhook route handlers
-- Cloud AI adapter with deterministic grounded fallback
-- Server-rendered enterprise command UI
