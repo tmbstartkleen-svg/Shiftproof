@@ -14,3 +14,18 @@ export async function acceptInvitation(token:string,name:string,verifiedEmail:st
 export async function listPlantRecords(orgId:string,facilityId:string){if(!databaseConfigured())return [{id:'demo_rec_1',recordType:'sanitation',status:'in_progress',title:'Line 103 sanitation',data:{percent:50}}];return await sql()`select id::text,record_type as "recordType",status,title,data,occurred_at as "occurredAt",created_at as "createdAt" from plant_records where organization_id::text=${orgId} and facility_id::text=${facilityId} order by occurred_at desc limit 200`}
 export async function createPlantRecord(orgId:string,facilityId:string,userId:string,input:{recordType:string;status:string;title:string;data?:any}){if(!databaseConfigured())return {id:'demo_record_'+Date.now(),...input};const [r]=await sql()`insert into plant_records(organization_id,facility_id,record_type,status,title,data,created_by) values(${orgId}::uuid,${facilityId}::uuid,${input.recordType},${input.status},${input.title},${sql().json(input.data||{})},${userId}::uuid) returning id::text,record_type as "recordType",status,title,data,occurred_at as "occurredAt"`;return r}
 export async function resolveLoginIdentity(email:string,fallback:{userId:string;email:string;name:string;role:string;organizationId:string;facilityIds:string[]}):Promise<{userId:string;email:string;name:string;role:string;organizationId:string;facilityIds:string[]}>{if(!databaseConfigured())return fallback;const [raw]=await sql()`select u.id::text as "userId",u.email,u.name,m.role,m.organization_id::text as "organizationId" from users u join memberships m on m.user_id=u.id and m.status='active' where lower(u.email)=lower(${email}) order by m.role limit 1`;if(!raw)return fallback;const row=raw as unknown as {userId:string;email:string;name:string;role:string;organizationId:string};const fs=await sql()`select fm.facility_id::text as id from facility_memberships fm where fm.user_id=${row.userId}::uuid`;return {userId:row.userId,email:row.email,name:row.name,role:row.role,organizationId:row.organizationId,facilityIds:fs.map((x:any)=>String(x.id))}}
+
+
+export async function resolveProductionIdentity(email:string):Promise<{userId:string;email:string;name:string;role:string;organizationId:string;facilityIds:string[]}|null>{
+  if(!databaseConfigured())return null;
+  const [raw]=await sql()`select u.id::text as "userId",u.email,u.name,m.role,m.organization_id::text as "organizationId"
+    from users u
+    join memberships m on m.user_id=u.id and m.status='active'
+    where lower(u.email)=lower(${email})
+    order by m.role
+    limit 1`;
+  if(!raw)return null;
+  const row=raw as unknown as {userId:string;email:string;name:string;role:string;organizationId:string};
+  const fs=await sql()`select fm.facility_id::text as id from facility_memberships fm where fm.user_id=${row.userId}::uuid`;
+  return {userId:row.userId,email:row.email,name:row.name,role:row.role,organizationId:row.organizationId,facilityIds:fs.map((x:any)=>String(x.id))};
+}
