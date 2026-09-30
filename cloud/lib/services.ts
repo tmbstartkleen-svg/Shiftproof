@@ -8,13 +8,15 @@ export function evidenceStatus(){
 }
 
 export function notificationStatus(){
+  const inAppConfigured=(process.env.SHIFTPROOF_NOTIFICATION_MODE||'').toLowerCase()==='in_app';
   const resendConfigured=Boolean(process.env.RESEND_API_KEY&&process.env.SHIFTPROOF_NOTIFICATION_FROM);
   const webhookConfigured=Boolean(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_URL);
-  const configured=resendConfigured||webhookConfigured;
-  const provider=resendConfigured?'resend':webhookConfigured?'webhook':'disabled';
+  const configured=inAppConfigured||resendConfigured||webhookConfigured;
+  const provider=inAppConfigured?'in-app':resendConfigured?'resend':webhookConfigured?'webhook':'disabled';
   return {
     provider,
     configured,
+    inAppConfigured,
     resendConfigured,
     webhookConfigured,
     bearerConfigured:Boolean(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_TOKEN)
