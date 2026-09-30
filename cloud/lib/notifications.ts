@@ -7,19 +7,57 @@ type NotificationInput={
   subject:string;message:string;eventType?:string;
 };
 
+async function deliverWithResend(input:NotificationInput){
+  const response=await fetch('https://api.resend.com/emails',{
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      authorization:`Bearer ${process.env.RESEND_API_KEY}`
+    },
+    body:JSON.stringify({
+      from:process.env.SHIFTPROOF_NOTIFICATION_FROM,
+      to:[input.destination],
+      subject:input.subject,
+      text:input.message,
+      headers:{
+        'X-ShiftProof-Event':input.eventType||'shiftproof.notification',
+        'X-ShiftProof-Organization':input.organizationId,
+        ...(input.facilityId?{'X-ShiftProof-Facility':input.facilityId}:{})
+      }
+    })
+  });
+  return {ok:response.ok,status:response.status,error:response.ok?null:`provider_http_${response.status}`,provider:'resend'};
+}
+
+async function deliverWithWebhook(input:NotificationInput){
+  const headers:Record<string,string>={'content-type':'application/json'};
+  if(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_TOKEN){
+    headers.authorization=`Bearer ${process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_TOKEN}`;
+  }
+  const response=await fetch(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_URL!,{
+    method:'POST',
+    headers,
+    body:JSON.stringify({
+      channel:input.channel,
+      destination:input.destination,
+      subject:input.subject,
+      message:input.message,
+      eventType:input.eventType||'shiftproof.notification',
+      organizationId:input.organizationId,
+      facilityId:input.facilityId||null
+    })
+  });
+  return {ok:response.ok,status:response.status,error:response.ok?null:`provider_http_${response.status}`,provider:'webhook'};
+}
+
 async function deliverPayload(input:NotificationInput){
   const status=notificationStatus();
-  if(!status.configured) return {ok:false,status:0,error:'notification_provider_not_configured',provider:status.provider};
+  if(!status.configured){
+    return {ok:false,status:0,error:'notification_provider_not_configured',provider:status.provider};
+  }
   try{
-    const headers:Record<string,string>={'content-type':'application/json'};
-    if(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_TOKEN) headers.authorization=`Bearer ${process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_TOKEN}`;
-    const response=await fetch(process.env.SHIFTPROOF_NOTIFICATION_WEBHOOK_URL!,{
-      method:'POST',headers,body:JSON.stringify({
-        channel:input.channel,destination:input.destination,subject:input.subject,message:input.message,
-        eventType:input.eventType||'shiftproof.notification',organizationId:input.organizationId,facilityId:input.facilityId||null
-      })
-    });
-    return {ok:response.ok,status:response.status,error:response.ok?null:`provider_http_${response.status}`,provider:status.provider};
+    if(status.provider==='resend') return await deliverWithResend(input);
+    return await deliverWithWebhook(input);
   }catch(e:any){
     return {ok:false,status:0,error:String(e?.message||e),provider:status.provider};
   }
