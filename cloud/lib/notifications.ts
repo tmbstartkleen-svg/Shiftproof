@@ -56,6 +56,7 @@ async function deliverPayload(input:NotificationInput){
     return {ok:false,status:0,error:'notification_provider_not_configured',provider:status.provider};
   }
   try{
+    if(status.provider==='in-app') return {ok:true,status:200,error:null,provider:'in-app'};
     if(status.provider==='resend') return await deliverWithResend(input);
     return await deliverWithWebhook(input);
   }catch(e:any){
@@ -72,12 +73,12 @@ export async function attemptNotificationDelivery(id:string){
   const result=await deliverPayload(row as NotificationInput);
   const attempts=Number(row.attempts||0)+1;
   const nextAttempt=result.ok?null:new Date(Date.now()+Math.min(60,2**Math.min(attempts,6))*60_000).toISOString();
-  const status=result.ok?'sent':attempts>=6?'dead_letter':'retry';
-  await sql()`update notification_deliveries set status=${status},attempts=${attempts},last_attempt_at=now(),
+  const deliveryStatus=result.ok?'sent':attempts>=6?'dead_letter':'retry';
+  await sql()`update notification_deliveries set status=${deliveryStatus},attempts=${attempts},last_attempt_at=now(),
     next_attempt_at=${nextAttempt},last_error=${result.error||null},
     provider_response=${sql().json({status:result.status,ok:result.ok} as any)}
     where id=${id}::uuid`;
-  return {id,status,attempts,nextAttemptAt:nextAttempt,provider:result.provider};
+  return {id,status:deliveryStatus,attempts,nextAttemptAt:nextAttempt,provider:result.provider};
 }
 
 export async function processNotificationOutbox(limit=25){
@@ -88,6 +89,17 @@ export async function processNotificationOutbox(limit=25){
   const results=[] as any[];
   for(const row of rows) results.push(await attemptNotificationDelivery(String(row.id)));
   return {processed:results.length,results};
+}
+
+export async function listRecentNotifications(organizationId:string,limit=100){
+  if(!databaseConfigured()) return [];
+  return await sql()`select id::text,facility_id::text as "facilityId",channel,destination,subject,message,
+    event_type as "eventType",provider,status,attempts,last_error as "lastError",
+    created_at as "createdAt",last_attempt_at as "lastAttemptAt"
+    from notification_deliveries
+    where organization_id::text=${organizationId}
+    order by created_at desc
+    limit ${Math.max(1,Math.min(limit,200))}`;
 }
 
 export async function sendNotification(input:NotificationInput){
