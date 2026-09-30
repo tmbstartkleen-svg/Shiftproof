@@ -1,1 +1,19 @@
-import LoginForm from '@/components/LoginForm';export default function Home(){return <main className="loginShell"><section className="loginHero"><div className="logo">SP</div><p className="eyebrow">SHIFTPROOF ONE · V14</p><h1>The plant operating record.</h1><p>Production, sanitation, quality, maintenance, proof, handoffs, and enterprise visibility in one tenant-safe system.</p><div className="chips"><span>Production</span><span>Sanitation</span><span>Quality</span><span>Maintenance</span><span>Proof</span><span>AI</span></div></section><section className="loginPanel"><p className="eyebrow">PILOT HARDENED CLOUD</p><h2>Sign in</h2><LoginForm/></section></main>}
+import LoginForm from '@/components/LoginForm';
+
+export default function Home(){
+  const demoAuth=process.env.SHIFTPROOF_DEMO_AUTH!=='false';
+  return <main className="loginShell">
+    <section className="loginHero">
+      <div className="logo">SP</div>
+      <p className="eyebrow">SHIFTPROOF ONE · V18</p>
+      <h1>The plant operating record.</h1>
+      <p>Production, sanitation, quality, maintenance, proof, handoffs, and enterprise visibility in one tenant-safe system.</p>
+      <div className="chips"><span>Production</span><span>Sanitation</span><span>Quality</span><span>Maintenance</span><span>Proof</span><span>AI</span></div>
+    </section>
+    <section className="loginPanel">
+      <p className="eyebrow">{demoAuth?'PILOT HARDENED CLOUD':'PRODUCTION IDENTITY'}</p>
+      <h2>Sign in</h2>
+      <LoginForm demoAuth={demoAuth}/>
+    </section>
+  </main>
+}
