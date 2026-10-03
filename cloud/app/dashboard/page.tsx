@@ -3,18 +3,22 @@ import {getSession,canAdmin} from '@/lib/auth';
 import {getOrganization,listFacilities,listInvitations} from '@/lib/repository';
 import {liveServicesStatus} from '@/lib/services';
 import {listRecentNotifications} from '@/lib/notifications';
+import {pilotHardeningStatus} from '@/lib/pilot';
 import LogoutButton from '@/components/LogoutButton';
 import InviteForm from '@/components/InviteForm';
+
+export const dynamic='force-dynamic';
 
 export default async function Dashboard(){
   const s=await getSession();
   if(!s)redirect('/');
 
-  const [org,facilities,invites,notifications]=await Promise.all([
+  const [org,facilities,invites,notifications,release]=await Promise.all([
     getOrganization(s.organizationId),
     listFacilities(s.organizationId),
     canAdmin(s.role)?listInvitations(s.organizationId):Promise.resolve([]),
-    listRecentNotifications(s.organizationId,25)
+    listRecentNotifications(s.organizationId,25),
+    pilotHardeningStatus(s.organizationId)
   ]);
 
   const services=liveServicesStatus();
@@ -27,6 +31,7 @@ export default async function Dashboard(){
     services.evidence.configured,
     services.notifications.configured
   ].filter(Boolean).length;
+  const commandFeed=notifications.slice(0,6);
 
   return <main className="commandShell">
     <aside className="eliteSide">
@@ -63,6 +68,9 @@ export default async function Dashboard(){
           <p>Sanitation-first plant execution, proof, intelligence and release control in one command surface.</p>
         </div>
         <div className="heroActions">
+          <span className={release.commercialReleaseReady?'releaseBadge ready':'releaseBadge pending'}>
+            {release.commercialReleaseReady?'COMMERCIAL READY':release.controlledPilotReady?'PILOT READY':'RELEASE GATE OPEN'}
+          </span>
           <a className="btn" href="/notifications">View Alerts</a>
           {canAdmin(s.role)&&<a className="btn primary" href="/onboarding">Configure Plant</a>}
         </div>
@@ -82,7 +90,7 @@ export default async function Dashboard(){
         </article>
         <article className="executiveCard">
           <div className="metricIcon">02</div>
-          <div><span>Release stack</span><strong>{readyChecks}/4</strong><p>Core production services online</p></div>
+          <div><span>Release readiness</span><strong>{release.score}%</strong><p>{release.passed}/{release.total} checks passed</p></div>
         </article>
         <article className="executiveCard">
           <div className="metricIcon">03</div>
@@ -112,9 +120,23 @@ export default async function Dashboard(){
           <div className="panelHead"><div><p className="eyebrow">MISSION CONTROL</p><h2>Quick Actions</h2></div></div>
           <a className="quickAction" href="/notifications"><span>01</span><div><b>Notification Center</b><small>Plant alerts, retries and delivery history</small></div><i>→</i></a>
           <a className="quickAction" href="/intelligence"><span>02</span><div><b>Plant Intelligence</b><small>ProofScore, PXS and Ask the Plant</small></div><i>→</i></a>
-          <a className="quickAction" href="/pilot"><span>03</span><div><b>Release Gate</b><small>Production-readiness control surface</small></div><i>→</i></a>
-          <a className="quickAction" href="/services"><span>04</span><div><b>Live Services</b><small>Database, identity, evidence and alerts</small></div><i>→</i></a>
+          <a className="quickAction" href="/pilot"><span>03</span><div><b>Release Gate</b><small>{release.commercialReleaseReady?'Commercial release ready':release.score+'% readiness'}</small></div><i>→</i></a>
+          <a className="quickAction" href="/services"><span>04</span><div><b>Live Services</b><small>{readyChecks}/4 core services online</small></div><i>→</i></a>
         </aside>
+      </section>
+
+      <section className="commandPanel commandFeedPanel">
+        <div className="panelHead"><div><p className="eyebrow">LIVE COMMAND FEED</p><h2>Recent System Activity</h2></div><a className="feedLink" href="/notifications">Open full feed →</a></div>
+        {commandFeed.length===0?
+          <div className="emptyCommand"><b>No activity yet</b><p>New plant notifications and release events will appear here.</p></div>:
+          <div className="commandFeed">
+            {commandFeed.map((n:any)=><article key={n.id} className="feedRow">
+              <span className={n.status==='sent'?'feedDot goodDot':n.status==='retry'||n.status==='dead_letter'?'feedDot badDot':'feedDot'}/>
+              <div><b>{n.subject||n.eventType||'ShiftProof event'}</b><small>{n.eventType||'shiftproof.notification'} · {n.provider||'in-app'}</small></div>
+              <div className="feedTime">{n.createdAt?new Date(n.createdAt).toLocaleString():'—'}</div>
+              <span className={'feedStatus '+(n.status==='sent'?'ok':'')}>{n.status||'recorded'}</span>
+            </article>)}
+          </div>}
       </section>
 
       {canAdmin(s.role)&&<section className="commandPanel invitePanel">
